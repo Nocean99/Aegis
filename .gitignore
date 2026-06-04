@@ -28,3 +28,6 @@ log/
 *.pem
 *.key
 
+
+# Personal profile drafts kept outside this project
+NOCEAN99_PROFILE_README.md

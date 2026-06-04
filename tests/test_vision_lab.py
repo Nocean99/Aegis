@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -10,7 +11,15 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from autonomy.vision_lab import collect_image_paths, collect_video_paths, evaluate_results, load_labels, run_video_vision_lab, run_vision_lab
+from autonomy.vision_lab import (
+    build_semantic_scorer,
+    collect_image_paths,
+    collect_video_paths,
+    evaluate_results,
+    load_labels,
+    run_video_vision_lab,
+    run_vision_lab,
+)
 
 
 def red_block_image() -> np.ndarray:
@@ -164,7 +173,7 @@ def test_label_loader_and_metric_helpers() -> None:
         assert loaded[("frame.jpg", 10)]["expected_match"] is True
     metrics = evaluate_results(
         [
-            {"detected": True, "semantic": {"score": 0.9}, "label": {"expected_match": True}},
+            {"detected": True, "semantic": {"score": 0.9, "decision": "POSSIBLE_MATCH"}, "label": {"expected_match": True}},
             {"detected": False, "semantic": {"score": 0.0}, "label": {"expected_match": True}},
         ],
         threshold=0.5,
@@ -192,6 +201,26 @@ def test_vision_lab_records_full_frame_semantic_scan() -> None:
         assert result["final_score"] == result["full_frame_semantic"]["score"]
 
 
+def test_build_openai_scorer_passes_runtime_settings() -> None:
+    previous_key = os.environ.get("OPENAI_API_KEY")
+    os.environ["OPENAI_API_KEY"] = "test-key"
+    try:
+        scorer = build_semantic_scorer(
+            "openai",
+            openai_model="test-vision-model",
+            openai_detail="high",
+            openai_timeout_s=9.0,
+        )
+        assert scorer.model_name == "test-vision-model"
+        assert scorer.detail == "high"
+        assert scorer.timeout_s == 9.0
+    finally:
+        if previous_key is None:
+            os.environ.pop("OPENAI_API_KEY", None)
+        else:
+            os.environ["OPENAI_API_KEY"] = previous_key
+
+
 if __name__ == "__main__":
     tests = [
         test_collect_image_paths_from_folder,
@@ -203,6 +232,7 @@ if __name__ == "__main__":
         test_vision_lab_evaluates_labeled_images,
         test_label_loader_and_metric_helpers,
         test_vision_lab_records_full_frame_semantic_scan,
+        test_build_openai_scorer_passes_runtime_settings,
     ]
     for test in tests:
         test()

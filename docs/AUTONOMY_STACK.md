@@ -332,6 +332,30 @@ Generate an HTML report viewer:
 
 This creates `vision_report_viewer.html` beside the JSON report. It shows benchmark metrics, the vision plan, false positives, false negatives, and the review shortlist with image previews.
 
+Run the local analyst dashboard:
+
+```bash
+./scripts/run_analyst_dashboard.sh
+```
+
+Open:
+
+```text
+http://localhost:8010
+```
+
+The analyst dashboard is the first operator-facing mission intelligence UI. It lists saved vision reports, shows benchmark metrics, presents candidate cards, and stores review decisions:
+
+```text
+candidate_reviews.json
+```
+
+Review statuses:
+
+- approve
+- reject
+- investigate
+
 ## Open-Vocabulary Scoring Hook
 
 The semantic scorer now has two paths:
@@ -339,7 +363,7 @@ The semantic scorer now has two paths:
 - `local`: deterministic placeholder, fast, no network/API key
 - `openai`: optional vision-language scorer for crop/full-frame matching
 
-The AI scorer is only used for perception review. It does not control PX4 and cannot directly publish flight commands.
+The semantic scorer is only used for perception review. It does not control PX4 and cannot directly publish flight commands.
 
 Example:
 
@@ -347,9 +371,12 @@ Example:
 export OPENAI_API_KEY="..."
 export OPENAI_VISION_MODEL="your-vision-capable-model"
 
+./scripts/check_openai_vision_env.sh
+
 ./scripts/test_vision_only.sh "/path/to/test/images" \
   --mission-request "Search these images for people who may need rescue" \
   --semantic-vision openai \
+  --openai-detail high \
   --full-frame-semantic misses \
   --labels-csv "/path/to/vision_labels.csv" \
   --save-only-detections \
@@ -362,7 +389,9 @@ Full-frame semantic modes:
 - `misses`: score the full frame when cheap proposals found nothing
 - `all`: score every sampled frame as well as crops
 
-For hybrid drone operation, `misses` is usually the best starting point: the cheap detector handles most frames, and the expensive AI model checks frames where the proposal layer might have missed something.
+For hybrid drone operation, `misses` is usually the best starting point: the cheap detector handles most frames, and the semantic model checks frames where the proposal layer might have missed something.
+
+For serious benchmark runs, use `all` on a small labeled dataset first. That gives a more honest read on whether the semantic model can find targets even when the cheap proposal layer misses them. Use `--openai-detail low` for faster broad sweeps and `--openai-detail high` when targets are small, far away, partially hidden, or visually similar to distractors.
 
 ## Mission Command Layer
 

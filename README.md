@@ -1,222 +1,206 @@
-# Autonomous Site-Monitoring Drone MVP
+# Mission Intelligence Layer
 
-This workspace contains a simulation-first prototype for an autonomous site-monitoring drone. It is not flight-control firmware and should not be connected to real motors. The goal is to prove mission logic, safety behavior, perception events, telemetry, and dashboard workflows before moving to PX4/ArduPilot, ROS 2, and a real simulator.
+Simulation-first mission intelligence for robotic and sensor systems.
 
-## What This MVP Includes
+This project started with an autonomous drone simulation, but the core idea is broader: convert high-level mission requests into structured search behavior, sensor processing, candidate scoring, analyst review, and mission reports. A PX4/Gazebo drone is the current test platform. The intelligence layer is intended to stay modular enough to support other robotic or sensor inputs later, such as fixed cameras, ground robots, acoustic sensors, telemetry feeds, or recorded data.
 
-- Simulated drone state: position, altitude, battery, link quality, GPS quality, vibration, temperature, mission phase
-- Autonomous takeoff, waypoint patrol, return-to-home, and landing
-- Geofence checks
-- Emergency stop and manual override commands
-- Low-battery and signal-loss return-to-home triggers
-- Obstacle and anomaly simulation
-- Object/anomaly event logging with timestamp and location
-- Browser dashboard with map, live simulated camera, mission status, health, alerts, abort, RTH, and manual override controls
-- JSON flight logs written to `logs/`
+The repository is for simulation and software workflow testing only. It is not flight-control firmware and should not be connected directly to real motors.
 
-## Run It
+## Current Capabilities
+
+- Mission request parsing from plain-English objectives
+- Search mission state machines for simulated robotic workflows
+- PX4/Gazebo helper scripts for drone-based validation
+- Fast dashboard simulation for command, telemetry, alerts, and logs
+- Vision-only benchmark runner for images and videos
+- Classical proposal detectors for color/objectness-based candidate generation
+- Semantic scoring interface for open-vocabulary target review
+- Analyst dashboard for reviewing candidates, metrics, and reports
+- Structured logs, JSON reports, debug images, and candidate crops
+- Safety-oriented mission concepts: return-home, geofence, abort, manual override, and link-loss policy
+
+## Architecture
+
+```text
+Mission Request
+   |
+Mission Command + Objective Parser
+   |
+Search / Collection Plan
+   |
+Sensor Input
+   |
+Proposal Detection
+   |
+Semantic Scoring
+   |
+Candidate Review Dashboard
+   |
+Mission Report
+```
+
+PX4, Gazebo, and the drone simulator are integration targets, not the center of the system. The goal is to build a reusable mission-intelligence layer that can reason over different sensor sources while keeping low-level platform control separate.
+
+## Quick Dashboard Demo
+
+Run the lightweight dashboard simulation:
 
 ```bash
 python3 server.py
 ```
 
-Then open:
+Open:
 
 ```text
 http://localhost:8000
 ```
 
-## Fast Headless Scenario Tests
+This dashboard shows a simplified site-monitoring mission with simulated position, health, alerts, return-home, abort, and manual override controls.
 
-To evaluate simulator behavior without the live dashboard:
+## Fast Scenario Tests
+
+Run the headless simulation tests without opening a live view:
 
 ```bash
 ./scripts/run_fast_sim_tests.sh
 ```
 
-This runs takeoff/patrol, return-home, abort, manual override, high-wind return, and detection-injection scenarios. Reports are saved to `logs/sim_scenarios_<timestamp>.json` and `.csv`.
-
-## API
-
-- `GET /api/state` returns the latest drone state and recent events.
-- `POST /api/command` accepts:
-  - `{"command": "start"}`
-  - `{"command": "pause"}`
-  - `{"command": "rth"}`
-  - `{"command": "abort"}`
-  - `{"command": "manual_override", "enabled": true}`
-  - `{"command": "manual_override", "enabled": false}`
-
-## Current Architecture
+The runner covers takeoff/patrol, return-home, abort, manual override, high-wind return, and detection-injection scenarios. Reports are saved to:
 
 ```text
-Dashboard
-   |
-HTTP API
-   |
-Simulation Engine
-   |
-Mission Controller + Safety Monitor + Perception Stub + Flight Logger
+logs/sim_scenarios_<timestamp>.json
+logs/sim_scenarios_<timestamp>.csv
 ```
 
-## Recommended Next Integration Steps
+## PX4/Gazebo Drone Track
 
-1. Replace the simulated movement layer with PX4 SITL or ArduPilot SITL.
-2. Add ROS 2 nodes for mission control, safety monitoring, perception, and telemetry.
-3. Bridge simulator telemetry into this dashboard API.
-4. Replace simulated detections with camera frames and an OpenCV/YOLO-style detector.
-5. Add authentication, audit logs, encrypted command transport, and Remote ID/compliance checks before any field testing.
+The drone simulation path is still important because it gives the mission layer a realistic moving sensor platform. Use it to validate Offboard control, camera feeds, search routes, and safety behavior.
 
-## PX4/Gazebo Track
-
-For professional real simulation, use the PX4/Gazebo setup guide:
+Main docs:
 
 - `docs/PX4_GAZEBO_SETUP.md`
 - `docs/ARCHITECTURE.md`
 - `docs/PORTFOLIO_TEST_PLAN.md`
 - `docs/AUTONOMY_STACK.md`
+- `docs/REAL_SIMULATION.md`
 - `docs/DOCKER_ROS2.md`
 
-Useful helper scripts:
+Common scripts:
 
 ```bash
 ./scripts/check_px4_env.sh
-./scripts/run_px4_gazebo.sh
-./scripts/run_gazebo_world.sh
-./scripts/run_windy_gazebo_world.sh
-./scripts/run_px4_standalone.sh
-./scripts/run_dashboard.sh
-./scripts/run_uxrce_agent.sh
-./scripts/run_autonomy_node.sh
-./scripts/run_visual_debugger.sh
-./scripts/run_search_mission.sh
 ./scripts/run_red_block_world.sh
 ./scripts/run_red_block_gui.sh
 ./scripts/run_px4_camera_standalone.sh
+./scripts/run_uxrce_agent.sh
+./scripts/run_search_mission.sh
 ./scripts/check_ros2_env.sh
 ./scripts/start_camera_bridge.sh
 ./scripts/verify_camera_feed.sh
-./scripts/run_camera_bridge.sh
 ./scripts/debug_camera_frame.sh
-./scripts/list_camera_topics.sh
-./scripts/export_world_model_demo.sh
-./scripts/docker_build_ros2.sh
-./scripts/docker_shell_ros2.sh
-./scripts/docker_check_ros2.sh
 ```
+
+PX4 remains responsible for low-level stabilization and flight control. Mission logic should call controller interfaces, not publish raw flight-control messages directly.
 
 ## Autonomy Stack
 
-The new autonomy layer is in `autonomy/`:
+Core modules live in `autonomy/`:
 
-- `PX4ControllerInterface`: ROS 2/PX4 Offboard wrapper
-- `MissionManager`: state machine
-- `WaypointPlanner`: validated waypoint mission and interpolation
-- `SafetyMonitor`: safety checks and responses
-- `MissionLogger`: structured CSV logs
+- `mission_command.py`: mission command and operating-mode policy
+- `mission_objective.py`: plain-English objective parsing
+- `mission_manager.py`: waypoint mission state machine
+- `search_mission.py`: search-and-detect mission flow
+- `search_mission_manager.py`: mission execution and perception loop
+- `px4_controller_interface.py`: ROS 2/PX4 Offboard wrapper
+- `safety_monitor.py`: safety checks and mission responses
+- `world_model.py`: local grid map of searched cells, candidates, and confidence
+- `semantic_vision.py`: semantic scoring interface
+- `vision_lab.py`: offline image/video benchmark runner
 
-Mission config lives at:
+Mission configuration lives at:
 
 ```text
 config/autonomy.yaml
 ```
 
-Run core tests without ROS 2:
+Run core tests without ROS 2, Gazebo, Docker, or hardware:
 
 ```bash
 python3 tests/test_autonomy_stack.py
 python3 tests/test_search_mission.py
+python3 tests/test_world_model.py
 ```
 
-Search-and-detect mode uses classical OpenCV HSV thresholding to find a red block in the simulated camera feed. Configure it in `config/autonomy.yaml` under `target`, `search`, and `approach`.
+## Mission Commands
 
-The search mission also maintains an internal grid-based `WorldModel` for searched cells, target confidence, placeholder obstacle/risk scores, safety zones, JSON snapshots, and heatmap images.
-
-Search mission run modes:
+Parse a mission request:
 
 ```bash
-python3 -m autonomy.search_mission --run-mode perception-only --camera-source gz
-python3 -m autonomy.search_mission --run-mode full-px4 --camera-source ros2 --topic /camera/image_raw
-python3 -m autonomy.search_mission --run-mode perception-only --camera-source gz --mission-request "Search this area for the described target"
+./scripts/parse_mission_request.sh "Search the shoreline for possible signs of a missing person"
 ```
 
-Parse a natural-language mission request:
+Plan a command without running a vehicle:
 
 ```bash
-./scripts/parse_mission_request.sh "Search the shoreline for a possible survivor signal"
+./scripts/plan_mission_command.sh --mode connected-supervised "Search the shoreline for possible signs of a missing person"
+./scripts/plan_mission_command.sh --mode autonomous-return-report "Search the area for anything matching the responder description"
 ```
 
-Plan a full mission command from plain English:
+`connected-supervised` assumes a live operator can review candidates during the mission. `autonomous-return-report` assumes the platform may lose connection, so it stores candidates and returns with a report.
+
+## Vision Benchmarks
+
+Test perception without running the simulator:
 
 ```bash
-./scripts/plan_mission_command.sh --mode connected-supervised "Search the shoreline for a possible survivor signal"
-./scripts/plan_mission_command.sh --mode autonomous-return-report "Search this area for anything matching the responder description"
-```
-
-The command planner keeps the raw user request, extracts broad search hints, chooses candidate-confirmation behavior, and saves report/link-loss policy. `connected-supervised` assumes a live responder can review candidates. `autonomous-return-report` assumes the drone may be disconnected, so it searches within safety limits, returns home, and stores candidates for later review.
-
-Semantic vision is now represented as a candidate scoring layer. The current local scorer is a deterministic placeholder that ranks proposed image regions against the mission request and saves candidate crops. It does not yet identify arbitrary vehicle/boat/person descriptions. The next major perception upgrade is plugging in a real vision-language model to score those saved crops against the responder's plain-English target description.
-
-Test only the vision stack, without PX4/Gazebo/Docker:
-
-```bash
-./scripts/test_vision_only.sh path/to/image_or_folder \
+./scripts/test_vision_only.sh "/path/to/images" \
   --mission-request "Search this image set for the responder's described target"
 ```
 
-For large folders, keep the output small:
+For large folders:
 
 ```bash
-./scripts/test_vision_only.sh path/to/image_or_folder \
+./scripts/test_vision_only.sh "/path/to/images" \
   --mission-request "Search this image set for red objects that could be relevant to a rescue" \
   --save-only-detections \
   --max-saved-candidates 50
 ```
 
-The default proposal mode is `mission-color`, which adapts the cheap color proposal scan to the mission text. For example, a blue-boat mission looks for blue regions, while an orange-life-jacket mission looks for orange regions. Use `--proposal-mode high-recall` for broad red-focused scanning, or `--proposal-mode precise` for stricter red-block-style detections.
+The report is written to:
 
-Preview the generated vision search plan:
-
-```bash
-./scripts/plan_vision_search.sh "Search the shoreline for a small blue boat with a white top"
+```text
+logs/vision_lab/<timestamp>/vision_report.json
 ```
 
-Outputs are saved under `logs/vision_lab/<timestamp>/`:
+It includes per-image results, candidate crops, debug images, scores, explanations, false positives, false negatives, and a review shortlist when labels are available.
 
-- `vision_report.json`
-- `review_shortlist.json`
-- annotated debug images
-- candidate crop images
-
-The report also includes red-audit metrics for every image, including images that were not accepted as detections. Use `summary.possible_misses` to inspect images that had red pixels but failed the detector filters.
-
-Test a video file without running the drone:
+Video files use the same pipeline:
 
 ```bash
 ./scripts/test_vision_only.sh "/path/to/video.mp4" \
   --video \
   --sample-every-s 1.0 \
-  --mission-request "Search this video for red objects that could be relevant to a rescue" \
+  --mission-request "Search this video for the responder's described target" \
   --save-only-detections
 ```
 
-The report stores frame indexes and timestamps so detections can be traced back to the source video.
+## Labeled Evaluation
 
-Evaluate specific-object accuracy with labels:
+Use a CSV when you want precision/recall instead of subjective inspection:
 
 ```bash
 cp config/vision_labels_template.csv /Users/noah/Desktop/vision_labels.csv
 ```
 
-Edit the CSV so each row marks whether an image should match the mission:
+Example:
 
 ```csv
 image_path,expected_match,label,notes
-red_vehicle_01.jpg,true,red_vehicle,clear positive
-red_sign_01.jpg,false,not_target,red but not the target
+target_01.jpg,true,target,clear positive
+distractor_01.jpg,false,not_target,visually similar but incorrect
 ```
 
-Then run:
+Run:
 
 ```bash
 ./scripts/test_vision_only.sh "/Users/noah/Desktop/vision_test_set" \
@@ -227,33 +211,56 @@ Then run:
   --max-saved-candidates 50
 ```
 
-The report will include precision, recall, F1, false positives, and false negatives. This is the realistic way to test whether a future AI vision encoder is actually improving.
+## Analyst Dashboard
 
-Build a visual HTML review page from a report:
+Run:
 
 ```bash
-./scripts/build_vision_report_viewer.sh "logs/vision_lab/<timestamp>/vision_report.json"
+./scripts/run_analyst_dashboard.sh
 ```
 
-Open the generated `vision_report_viewer.html` to review metrics, false positives, false negatives, and the candidate shortlist.
+Open:
 
-Optional AI vision encoder path:
+```text
+http://localhost:8010
+```
+
+The dashboard lists saved vision reports, shows precision/recall metrics, displays candidate images, and lets an analyst mark candidates as approved, rejected, or needing investigation. Review decisions are saved beside the report as:
+
+```text
+candidate_reviews.json
+```
+
+## Optional Vision-Language Scoring
+
+The local semantic scorer is intentionally conservative. It ranks candidates but does not claim exact make/model or arbitrary object recognition. For stronger open-vocabulary testing, the project supports a provider-backed vision-language scorer as an optional backend.
+
+Set up the environment:
 
 ```bash
 export OPENAI_API_KEY="..."
 export OPENAI_VISION_MODEL="your-vision-capable-model"
 
+./scripts/check_openai_vision_env.sh
+```
+
+Run a deeper benchmark:
+
+```bash
 ./scripts/test_vision_only.sh "/Users/noah/Desktop/vision_test_set" \
   --mission-request "Search these images for people who may need rescue" \
   --semantic-vision openai \
-  --full-frame-semantic misses \
+  --openai-detail high \
+  --full-frame-semantic all \
   --labels-csv "/Users/noah/Desktop/vision_labels.csv" \
   --save-only-detections \
   --max-saved-candidates 50
 ```
 
-Use `--full-frame-semantic misses` when you want the AI model to inspect full frames only when cheap proposal detectors found nothing. Use `--full-frame-semantic all` for deeper evaluation, but expect it to be slower and more expensive.
+Use `--full-frame-semantic misses` when you only want the semantic scorer to inspect frames where the cheap proposal layer found nothing. Use `--full-frame-semantic all` for more complete evaluation on a small labeled set.
 
-## Safety Note
+The semantic scoring backend only reviews perception outputs. It does not publish PX4 commands or directly control a vehicle.
 
-Use this only for simulation and software workflow testing. For hardware, start with bench tests, props-off tests, tethered hover, manual flight, assisted waypoint flight, and only then autonomous patrol in a legal, controlled area with permission.
+## Safety
+
+This project is simulation-first. For any future hardware work, start with bench tests, props-off tests, tethered hover, manual flight, assisted waypoint flight, and only then controlled autonomous tests in a legal area with permission. Keep human override, logging, geofencing, and return-home behavior in the loop.

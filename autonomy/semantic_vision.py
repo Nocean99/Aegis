@@ -109,20 +109,20 @@ class LocalSemanticVisionScorer:
         if objective.extracted_colors:
             color_hits = _matching_color_tags(frame_bgr, objective.extracted_colors)
             tags.extend(color_hits)
-        score = 0.18
+        score = 0.08
         if objective.extracted_colors and any(tag.startswith("visual_color:") for tag in tags):
             score += 0.18
         if objective.extracted_categories:
-            score += 0.08
+            score += 0.04
         return SemanticVisionResult(
-            score=round(min(score, 0.45), 3),
+            score=round(min(score, 0.32), 3),
             decision=SemanticDecision.NEEDS_REVIEW,
             explanation=(
-                "Full-frame local scan cannot identify arbitrary objects; it only records that "
-                "the frame should be considered by a real vision-language scorer."
+                "Local full-frame scan cannot identify category-only targets such as people, vehicles, or boats. "
+                "Use a real vision-language scorer for this mission type."
             ),
             model_name=self.model_name,
-            tags=sorted(set(tags + ["full_frame_scan"])),
+            tags=sorted(set(tags + ["full_frame_scan", "local_scorer_limited"])),
             needs_human_review=True,
         )
 
@@ -135,10 +135,20 @@ class OpenAIVisionLanguageScorer:
     explicit model name via constructor or OPENAI_VISION_MODEL.
     """
 
-    def __init__(self, *, model: str | None = None, api_key: str | None = None, timeout_s: float = 45.0) -> None:
+    def __init__(
+        self,
+        *,
+        model: str | None = None,
+        api_key: str | None = None,
+        detail: str = "auto",
+        timeout_s: float = 45.0,
+    ) -> None:
         self.model_name = model or os.environ.get("OPENAI_VISION_MODEL", "")
         self.api_key = api_key or os.environ.get("OPENAI_API_KEY", "")
+        self.detail = detail
         self.timeout_s = timeout_s
+        if self.detail not in {"auto", "low", "high"}:
+            raise ValueError("OpenAI image detail must be one of: auto, low, high.")
         if not self.model_name:
             raise ValueError("OpenAI vision scorer requires --openai-model or OPENAI_VISION_MODEL.")
         if not self.api_key:
@@ -171,6 +181,9 @@ class OpenAIVisionLanguageScorer:
 
     def _score_image(self, *, prompt: str, image_bgr: np.ndarray) -> SemanticVisionResult:
         data_url = image_to_data_url(image_bgr)
+        image_content = {"type": "input_image", "image_url": data_url}
+        if self.detail != "auto":
+            image_content["detail"] = self.detail
         body = {
             "model": self.model_name,
             "input": [
@@ -178,7 +191,7 @@ class OpenAIVisionLanguageScorer:
                     "role": "user",
                     "content": [
                         {"type": "input_text", "text": prompt},
-                        {"type": "input_image", "image_url": data_url},
+                        image_content,
                     ],
                 }
             ],

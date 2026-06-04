@@ -14,6 +14,7 @@ from autonomy.config_loader import load_search_mission_config
 from autonomy.color_proposal_detector import MissionColorProposalDetector
 from autonomy.mission_objective import parse_mission_request
 from autonomy.mission_vision_plan import create_mission_vision_plan
+from autonomy.objectness_proposal_detector import ObjectnessProposalDetector
 from autonomy.red_block_detector import RedBlockDetector
 from autonomy.semantic_vision import LocalSemanticVisionScorer, OpenAIVisionLanguageScorer, crop_detection, save_candidate_crop
 
@@ -36,6 +37,8 @@ def run_vision_lab(
     eval_threshold: float = 0.25,
     semantic_vision: str = "local",
     openai_model: str | None = None,
+    openai_detail: str = "auto",
+    openai_timeout_s: float = 45.0,
     full_frame_semantic: str = "off",
 ) -> Path:
     config = load_search_mission_config(config_path)
@@ -64,6 +67,8 @@ def run_vision_lab(
         eval_threshold=eval_threshold,
         semantic_vision=semantic_vision,
         openai_model=openai_model,
+        openai_detail=openai_detail,
+        openai_timeout_s=openai_timeout_s,
         full_frame_semantic=full_frame_semantic,
         source_type="images",
     )
@@ -85,6 +90,8 @@ def run_video_vision_lab(
     eval_threshold: float = 0.25,
     semantic_vision: str = "local",
     openai_model: str | None = None,
+    openai_detail: str = "auto",
+    openai_timeout_s: float = 45.0,
     full_frame_semantic: str = "off",
 ) -> Path:
     video_path = Path(video_path)
@@ -125,6 +132,8 @@ def run_video_vision_lab(
         eval_threshold=eval_threshold,
         semantic_vision=semantic_vision,
         openai_model=openai_model,
+        openai_detail=openai_detail,
+        openai_timeout_s=openai_timeout_s,
         full_frame_semantic=full_frame_semantic,
         source_type="video",
     )
@@ -144,6 +153,8 @@ def _run_vision_lab_on_frames(
     eval_threshold: float,
     semantic_vision: str,
     openai_model: str | None,
+    openai_detail: str,
+    openai_timeout_s: float,
     full_frame_semantic: str,
     source_type: str,
 ) -> Path:
@@ -152,7 +163,13 @@ def _run_vision_lab_on_frames(
     vision_plan = create_mission_vision_plan(objective)
     detector = RedBlockDetector(config.target)
     color_detector = MissionColorProposalDetector(vision_plan, min_area_px=max(25, int(config.target.min_area_px * 0.15)))
-    scorer = build_semantic_scorer(semantic_vision, openai_model=openai_model)
+    objectness_detector = ObjectnessProposalDetector(min_area_px=max(30, int(config.target.min_area_px * 0.12)))
+    scorer = build_semantic_scorer(
+        semantic_vision,
+        openai_model=openai_model,
+        openai_detail=openai_detail,
+        openai_timeout_s=openai_timeout_s,
+    )
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     run_dir = Path(output_dir) / stamp
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -177,8 +194,8 @@ def _run_vision_lab_on_frames(
                 }
             )
             continue
-        detection = detect_with_mode(detector, color_detector, frame, proposal_mode)
-        audit_mask = color_detector.mask(frame) if proposal_mode == "mission-color" else detector.high_recall_mask(frame)
+        detection = detect_with_mode(detector, color_detector, objectness_detector, vision_plan, frame, proposal_mode)
+        audit_mask = audit_mask_for_mode(detector, color_detector, objectness_detector, vision_plan, frame, proposal_mode)
         audit = red_region_audit(audit_mask)
         crop = crop_detection(frame, detection)
         semantic = scorer.score(
@@ -219,6 +236,7 @@ def _run_vision_lab_on_frames(
                 "detector_confidence": detection.confidence,
                 "bbox": detection.bbox,
                 "red_audit": audit,
+                "review_priority": detection.confidence,
                 "crop_path": saved_crop,
                 "debug_path": None if debug_path is None else str(debug_path),
                 "semantic": asdict(semantic),
@@ -355,6 +373,13 @@ def main() -> None:
     parser.add_argument("--semantic-vision", choices=["local", "openai"], default="local", help="Semantic scorer backend")
     parser.add_argument("--openai-model", default=None, help="Required with --semantic-vision openai unless OPENAI_VISION_MODEL is set")
     parser.add_argument(
+        "--openai-detail",
+        choices=["auto", "low", "high"],
+        default="auto",
+        help="Image detail sent to the OpenAI vision model. low is cheaper/faster; high is better for small or distant targets.",
+    )
+    parser.add_argument("--openai-timeout-s", type=float, default=45.0, help="Timeout per OpenAI vision request")
+    parser.add_argument(
         "--full-frame-semantic",
         choices=["off", "misses", "all"],
         default="off",
@@ -388,6 +413,8 @@ def main() -> None:
             eval_threshold=args.eval_threshold,
             semantic_vision=args.semantic_vision,
             openai_model=args.openai_model,
+            openai_detail=args.openai_detail,
+            openai_timeout_s=args.openai_timeout_s,
             full_frame_semantic=args.full_frame_semantic,
         )
     else:
@@ -407,6 +434,8 @@ def main() -> None:
             eval_threshold=args.eval_threshold,
             semantic_vision=args.semantic_vision,
             openai_model=args.openai_model,
+            openai_detail=args.openai_detail,
+            openai_timeout_s=args.openai_timeout_s,
             full_frame_semantic=args.full_frame_semantic,
         )
     print(f"Vision report saved: {report_path}")
@@ -415,19 +444,44 @@ def main() -> None:
 def detect_with_mode(
     detector: RedBlockDetector,
     color_detector: MissionColorProposalDetector,
+    objectness_detector: ObjectnessProposalDetector,
+    vision_plan,
     frame: np.ndarray,
     proposal_mode: str,
 ):
     if proposal_mode == "precise":
         return detector.detect(frame)
     if proposal_mode == "mission-color":
+        if not vision_plan.important_colors and vision_plan.possible_categories:
+            return objectness_detector.detect(frame)
         return color_detector.detect(frame)
     return detector.detect_high_recall(frame)
 
 
-def build_semantic_scorer(name: str, *, openai_model: str | None = None):
+def audit_mask_for_mode(
+    detector: RedBlockDetector,
+    color_detector: MissionColorProposalDetector,
+    objectness_detector: ObjectnessProposalDetector,
+    vision_plan,
+    frame: np.ndarray,
+    proposal_mode: str,
+) -> np.ndarray:
+    if proposal_mode == "mission-color":
+        if not vision_plan.important_colors and vision_plan.possible_categories:
+            return objectness_detector.mask(frame)
+        return color_detector.mask(frame)
+    return detector.high_recall_mask(frame)
+
+
+def build_semantic_scorer(
+    name: str,
+    *,
+    openai_model: str | None = None,
+    openai_detail: str = "auto",
+    openai_timeout_s: float = 45.0,
+):
     if name == "openai":
-        return OpenAIVisionLanguageScorer(model=openai_model)
+        return OpenAIVisionLanguageScorer(model=openai_model, detail=openai_detail, timeout_s=openai_timeout_s)
     return LocalSemanticVisionScorer()
 
 
@@ -480,7 +534,7 @@ def evaluate_results(results: list[dict], *, threshold: float) -> dict:
     for result in labeled:
         expected = bool(result["label"]["expected_match"])
         score = float(result.get("final_score", result.get("semantic", {}).get("score", 0.0)))
-        predicted = bool(result.get("detected")) and score >= threshold
+        predicted = is_predicted_match(result, threshold=threshold)
         if predicted and expected:
             true_positive += 1
         elif predicted and not expected:
@@ -511,6 +565,16 @@ def evaluate_results(results: list[dict], *, threshold: float) -> dict:
     }
 
 
+def is_predicted_match(result: dict, *, threshold: float) -> bool:
+    decision = str(result.get("final_decision", result.get("semantic", {}).get("decision", "")))
+    score = float(result.get("final_score", result.get("semantic", {}).get("score", 0.0)))
+    if decision == "LIKELY_MATCH":
+        return score >= threshold
+    if decision == "POSSIBLE_MATCH":
+        return score >= threshold and bool(result.get("detected"))
+    return False
+
+
 def _shortlist_entry(result: dict) -> dict:
     semantic = result.get("semantic", {})
     red_audit = result.get("red_audit", {})
@@ -521,6 +585,7 @@ def _shortlist_entry(result: dict) -> dict:
         "score": result.get("final_score", semantic.get("score")),
         "decision": result.get("final_decision", semantic.get("decision")),
         "detector_confidence": result.get("detector_confidence"),
+        "review_priority": result.get("review_priority"),
         "bbox": result.get("bbox"),
         "crop_path": result.get("crop_path"),
         "debug_path": result.get("debug_path"),

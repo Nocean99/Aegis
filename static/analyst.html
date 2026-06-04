@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Mission Intelligence Analyst</title>
+    <link rel="stylesheet" href="/static/analyst.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Mission Intelligence Platform</p>
+          <h1>Analyst Dashboard</h1>
+        </div>
+        <div class="status-pill" id="activeReport">No report loaded</div>
+      </header>
+
+      <section class="layout">
+        <aside class="reports">
+          <div class="section-head">
+            <h2>Reports</h2>
+            <button id="refreshReports" type="button">Refresh</button>
+          </div>
+          <div id="reportList" class="report-list"></div>
+        </aside>
+
+        <section class="workspace">
+          <section class="metrics" id="metrics"></section>
+
+          <section class="panel">
+            <div class="section-head">
+              <h2>Mission</h2>
+              <span id="scorerMeta"></span>
+            </div>
+            <p id="missionText" class="mission-text">Select a report to review candidates.</p>
+            <div id="visionPlan" class="chips"></div>
+          </section>
+
+          <section class="panel">
+            <div class="section-head">
+              <h2>Candidate Review</h2>
+              <select id="candidateFilter" aria-label="Candidate filter">
+                <option value="shortlist">Shortlist</option>
+                <option value="false_positive">False positives</option>
+                <option value="false_negative">False negatives</option>
+                <option value="all">All candidates</option>
+              </select>
+            </div>
+            <div id="candidateGrid" class="candidate-grid"></div>
+          </section>
+        </section>
+      </section>
+    </main>
+
+    <script src="/static/analyst.js"></script>
+  </body>
+</html>
