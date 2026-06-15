@@ -33,3 +33,5 @@ Aegis Vision Intelligence
 + Aegis Acoustic Intelligence
 
 The next logical expansion is sonar/acoustic sensing.
+
+The first acoustic milestone is not classifier training. It is making `.wav` evidence, spectrograms, acoustic segments, candidate JSON, and reports fit the same Aegis mission workflow.

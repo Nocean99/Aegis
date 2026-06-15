@@ -97,18 +97,24 @@ def objective_to_prompt(objective: MissionObjective) -> str:
     )
 
 
+def _has_term(text: str, term: str) -> bool:
+    """Word-boundary match (with simple plural support) to avoid substring hits
+    like 'car' in 'scar' or 'person' in 'personnel'."""
+    return re.search(rf"\b{re.escape(term)}(?:s|es)?\b", text) is not None
+
+
 def _extract_categories(text: str) -> list[str]:
     categories = []
     for category, hints in CATEGORY_HINTS.items():
-        if any(hint in text for hint in hints):
+        if any(_has_term(text, hint) for hint in hints):
             categories.append(category)
     return sorted(categories)
 
 
 def _extract_urgency(text: str) -> str:
-    if any(hint in text for hint in URGENCY_HINTS["high"]):
+    if any(_has_term(text, hint) for hint in URGENCY_HINTS["high"]):
         return "high"
-    if any(hint in text for hint in URGENCY_HINTS["low"]):
+    if any(_has_term(text, hint) for hint in URGENCY_HINTS["low"]):
         return "low"
     return "normal"
 

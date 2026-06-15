@@ -30,3 +30,22 @@ A single mission can combine multiple intelligence layers:
 - Aegis Acoustic Intelligence for sonar, audio, and other signal-based sensing
 
 The next logical expansion is an acoustic/sonar module that can evaluate non-visual evidence with the same mission-memory and benchmark discipline.
+
+## Acoustic Intelligence MVP
+
+Aegis Acoustic Intelligence starts with evidence workflow, not classifier training.
+
+Phase 1:
+
+- ingest `.wav` evidence
+- generate spectrograms
+- extract sample rate, duration, channel count, RMS, and peak metadata
+- write JSON and HTML reports
+
+Phase 2:
+
+- propose high-energy acoustic segments
+- emit candidate JSON with timestamps, proposal score, uncertainty, and proposal reason
+- preserve ambiguous audio evidence for analyst review
+
+Only after this workflow is benchmarked should classifier training become the focus.

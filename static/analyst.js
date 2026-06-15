@@ -13,6 +13,7 @@ const missionPlanForm = document.querySelector("#missionPlanForm");
 const missionRequest = document.querySelector("#missionRequest");
 const operatingMode = document.querySelector("#operatingMode");
 const missionPlanResult = document.querySelector("#missionPlanResult");
+const reviewPanelTitle = document.querySelector("#reviewPanelTitle");
 
 let selectedReportPath = null;
 let selectedPayload = null;
@@ -56,7 +57,7 @@ async function loadReports() {
     button.type = "button";
     button.innerHTML = `
       <strong>${escapeHtml(report.mission_request || "Untitled mission")}</strong>
-      <span>${escapeHtml(report.timestamp || "")}</span>
+      <span>${escapeHtml(report.type || "vision")} · ${escapeHtml(report.timestamp || "")}</span>
       <span>Precision ${display(report.precision)} · Recall ${display(report.recall)} · Capture ${display(report.capture_recall)} · ${display(report.detections)} detections</span>
     `;
     button.addEventListener("click", () => loadReport(report.path));
@@ -80,23 +81,38 @@ async function loadReport(path) {
 
 function renderReport() {
   const report = selectedPayload.report;
+  const isAcoustic = report.sensor_modality === "acoustic";
   const summary = report.summary || {};
   const evaluation = report.evaluation || {};
   activeReport.textContent = selectedPayload.path;
+  reviewPanelTitle.textContent = isAcoustic ? "Acoustic Review" : "Candidate Review";
   missionText.textContent = report.mission_request || "No mission request";
-  scorerMeta.textContent = `${report.proposal_mode || "unknown"} · ${report.scorer || "unknown"}`;
+  scorerMeta.textContent = isAcoustic ? "acoustic · local-acoustic-proposal-v1" : `${report.proposal_mode || "unknown"} · ${report.scorer || "unknown"}`;
   metrics.innerHTML = [
     metric("Processed", summary.processed),
-    metric("Detections", summary.detections),
-    metric("Shortlist", summary.shortlist_count),
-    metric("Precision", evaluation.precision),
-    metric("Recall", evaluation.recall),
-    metric("F1", evaluation.f1),
-    metric("Capture Recall", evaluation.analyst_capture?.recall),
-    metric("False Neg", evaluation.false_negative),
+    metric(isAcoustic ? "Proposals" : "Detections", isAcoustic ? summary.candidate_count : summary.detections),
+    metric("Shortlist", isAcoustic ? summary.candidate_count : summary.shortlist_count),
+    metric("Precision", isAcoustic ? evaluation.capture_precision : evaluation.precision),
+    metric("Recall", isAcoustic ? evaluation.capture_recall : evaluation.recall),
+    metric("F1", isAcoustic ? evaluation.capture_f1 : evaluation.f1),
+    metric("Capture Recall", isAcoustic ? evaluation.capture_recall : evaluation.analyst_capture?.recall),
+    metric("False Neg", isAcoustic ? evaluation.false_negative : evaluation.false_negative),
   ].join("");
-  renderVisionPlan(report.vision_plan || {});
+  if (isAcoustic) renderAcousticPlan(report);
+  else renderVisionPlan(report.vision_plan || {});
   renderCandidates();
+}
+
+function renderAcousticPlan(report) {
+  const metadata = report.metadata || [];
+  visionPlan.innerHTML = [
+    `Modality: acoustic`,
+    `Audio files: ${metadata.length}`,
+    `Spectrograms: ${report.summary?.spectrogram_count ?? 0}`,
+    `Candidates: ${report.summary?.candidate_count ?? 0}`,
+  ]
+    .map((item) => `<span class="chip">${escapeHtml(item)}</span>`)
+    .join("");
 }
 
 function renderVisionPlan(plan) {
@@ -174,10 +190,13 @@ function renderCandidates() {
     return;
   }
   const report = selectedPayload.report;
+  const isAcoustic = report.sensor_modality === "acoustic";
   const evaluation = report.evaluation || {};
   const summary = report.summary || {};
   let items = [];
-  if (candidateFilter.value === "false_positive") items = evaluation.false_positives || [];
+  if (isAcoustic) {
+    items = report.candidates || [];
+  } else if (candidateFilter.value === "false_positive") items = evaluation.false_positives || [];
   else if (candidateFilter.value === "false_negative") items = evaluation.false_negatives || [];
   else if (candidateFilter.value === "all") items = (report.results || []).filter((item) => item.detected || item.full_frame_semantic);
   else items = summary.shortlist || [];
@@ -198,26 +217,27 @@ function candidateCard(item) {
   card.className = "candidate-card";
   const key = candidateKey(item);
   const review = (selectedPayload.reviews || {})[key] || {};
-  const imagePath = item.debug_path || item.crop_path || item.image_path;
+  const isAcoustic = selectedPayload.report?.sensor_modality === "acoustic" || item.sensor_modality === "acoustic";
+  const imagePath = isAcoustic ? item.spectrogram_path : item.debug_path || item.crop_path || item.image_path;
   const image = imagePath
     ? `<img src="/api/file?path=${encodeURIComponent(imagePath)}" alt="${escapeHtml(fileName(imagePath))}" loading="lazy" />`
-    : `<div class="image-missing">No image</div>`;
+    : `<div class="image-missing">${isAcoustic ? "No spectrogram" : "No image"}</div>`;
   card.innerHTML = `
     ${image}
     <div class="candidate-body">
-      <h3>${escapeHtml(fileName(item.image_path || ""))}</h3>
-      <p class="review-note">${escapeHtml(item.label?.label || "unlabeled")} ${review.decision || review.status ? `· reviewed: ${escapeHtml(review.decision || review.status)}` : ""}</p>
-      <p class="review-note">${decisionMeaning(item.decision || item.final_decision || item.semantic?.decision)}</p>
+      <h3>${escapeHtml(isAcoustic ? item.candidate_id : fileName(item.image_path || ""))}</h3>
+      <p class="review-note">${escapeHtml(isAcoustic ? acousticTimeRange(item) : item.label?.label || "unlabeled")} ${review.decision || review.status ? `· reviewed: ${escapeHtml(review.decision || review.status)}` : ""}</p>
+      <p class="review-note">${escapeHtml(isAcoustic ? item.proposal_reason || "Acoustic segment proposal" : decisionMeaning(item.decision || item.final_decision || item.semantic?.decision))}</p>
       <p class="review-note">${escapeHtml(reviewReasons(item))}</p>
       <div class="candidate-meta">
         <span>Proposal <strong>${display(item.proposal_score ?? item.candidate_rank?.proposal_score)}</strong></span>
-        <span>Semantic <strong>${display(item.semantic_score ?? item.candidate_rank?.semantic_score ?? item.score ?? item.final_score ?? item.semantic?.score)}</strong></span>
+        <span>${isAcoustic ? "RMS" : "Semantic"} <strong>${display(isAcoustic ? item.rms_amplitude : item.semantic_score ?? item.candidate_rank?.semantic_score ?? item.score ?? item.final_score ?? item.semantic?.score)}</strong></span>
         <span>Uncertainty <strong>${display(item.uncertainty_score ?? item.candidate_rank?.uncertainty_score)}</strong></span>
-        <span>Mission relevance <strong>${display(item.mission_relevance_score ?? item.candidate_rank?.mission_relevance_score)}</strong></span>
+        <span>${isAcoustic ? "Peak" : "Mission relevance"} <strong>${display(isAcoustic ? item.peak_amplitude : item.mission_relevance_score ?? item.candidate_rank?.mission_relevance_score)}</strong></span>
         <span>Review priority <strong>${display(item.review_priority ?? item.candidate_rank?.review_priority)}</strong></span>
         <span>Decision <strong>${escapeHtml(item.decision || item.final_decision || item.semantic?.decision || "n/a")}</strong></span>
-        <span>Detector <strong>${display(item.detector_confidence)}</strong></span>
-        <span>BBox <strong>${escapeHtml(JSON.stringify(item.bbox || []))}</strong></span>
+        <span>${isAcoustic ? "Duration" : "Detector"} <strong>${display(isAcoustic ? item.duration_s : item.detector_confidence)}</strong></span>
+        <span>${isAcoustic ? "Time" : "BBox"} <strong>${escapeHtml(isAcoustic ? acousticTimeRange(item) : JSON.stringify(item.bbox || []))}</strong></span>
       </div>
       <select class="reason-tag" aria-label="Reason tag">
         ${reasonTagOptions(review.reason_tag || "")}
@@ -278,6 +298,7 @@ function renderMissionMemory(memory) {
   const categories = Object.entries(memory.category_metrics || {});
   const recommendations = memory.recommendations || [];
   const memoryV2 = memory.mission_memory_v2 || {};
+  const acoustic = memory.acoustic_memory || {};
   missionMemory.innerHTML = `
     ${memoryBlock("Coverage", [
       ["Reports", memory.report_count ?? 0],
@@ -294,6 +315,13 @@ function renderMissionMemory(memory) {
       ["Uncertainty causes", formatCounts(memoryV2.common_uncertainty_causes)],
     ])}
     ${memoryBlock("V2 Lessons", (memoryV2.lessons || []).map((item, index) => [String(index + 1), item]))}
+    ${memoryBlock("Acoustic Memory", [
+      ["Reports", acoustic.report_count ?? 0],
+      ["Candidates", acoustic.candidate_count ?? 0],
+      ["False positives", formatCounts(acoustic.recurring_acoustic_false_positives)],
+      ["Uncertainty", formatCounts(acoustic.recurring_acoustic_uncertainty)],
+      ["Recommended data", joinList(acoustic.recommended_acoustic_data || [])],
+    ])}
     ${memoryBlock("Recommendations", recommendations.map((item, index) => [String(index + 1), item]))}
     ${memoryBlock("Category Performance", categories.length ? categories.map(([name, metric]) => [
       name,
@@ -321,7 +349,11 @@ function metric(label, value) {
 }
 
 function candidateKey(item) {
-  return item.candidate_id || `${item.image_path || ""}::${item.frame_index ?? ""}`;
+  return item.candidate_id || `${item.image_path || item.audio_path || ""}::${item.frame_index ?? item.start_s ?? ""}`;
+}
+
+function acousticTimeRange(item) {
+  return `${display(item.start_s)}s-${display(item.end_s)}s`;
 }
 
 function fileName(path) {
@@ -360,6 +392,13 @@ function reasonTagOptions(selected) {
     ["building", "Building"],
     ["hot_object", "Hot object"],
     ["thermal_clutter", "Thermal clutter"],
+    ["wave_noise", "Wave noise"],
+    ["dock_machinery", "Dock machinery"],
+    ["wind_noise", "Wind noise"],
+    ["low_snr", "Low SNR"],
+    ["overlapping_signals", "Overlapping signals"],
+    ["vessel_sound", "Vessel sound"],
+    ["acoustic_clutter", "Acoustic clutter"],
     ["false_alarm", "False alarm"],
     ["uncertain_vehicle", "Uncertain vehicle"],
   ];

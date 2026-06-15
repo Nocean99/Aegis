@@ -1,4 +1,29 @@
 services:
+  analyst-dashboard:
+    build: .
+    image: aegis-analyst-dashboard:latest
+    ports:
+      - "8010:8010"
+    environment:
+      # Generate with: python3 -m autonomy.dashboard_auth hash 'your-password'
+      # Compose reads these from a local .env file (never commit .env).
+      ANALYST_USERNAME: ${ANALYST_USERNAME:-analyst}
+      ANALYST_PASSWORD_HASH: ${ANALYST_PASSWORD_HASH:-}
+      ANALYST_COOKIE_SECURE: ${ANALYST_COOKIE_SECURE:-0}
+    volumes:
+      # Mission reports live on the host so container redeploys keep history.
+      - ./logs:/app/logs
+    restart: unless-stopped
+    healthcheck:
+      test:
+        - CMD
+        - python3
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8010/healthz', timeout=2)"
+      interval: 30s
+      timeout: 3s
+      retries: 3
+
   ros2:
     build:
       context: .

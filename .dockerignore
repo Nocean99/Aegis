@@ -1,0 +1,21 @@
+# Keep the image small: no datasets, logs, sim assets, or VCS history.
+.git
+.github
+.venv
+__pycache__
+**/__pycache__
+*.pyc
+.env
+logs/
+datasets/
+benchmark_data/**
+!benchmark_data/missions/
+closed_loop_logs/
+sim_assets/
+docs/
+tests/
+scripts/
+*.md
+!README.md
+Dockerfile
+docker-compose.yml

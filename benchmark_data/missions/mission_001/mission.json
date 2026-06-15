@@ -1,0 +1,15 @@
+{
+  "mission_id": "mission_001",
+  "name": "Vessel present, all sensors agree",
+  "mission_request": "Monitor a protected shoreline for possible vessel activity",
+  "rgb_images": "../../../demo_data/system_benchmark_v1/mission_001/rgb",
+  "ir_images": "../../../demo_data/system_benchmark_v1/mission_001/ir",
+  "acoustic": "../../../demo_data/system_benchmark_v1/mission_001/acoustic/hydrophone_contact_001.wav",
+  "expected_contact": true,
+  "expected_priority": "high",
+  "expected_evidence": [
+    "rgb",
+    "infrared",
+    "acoustic"
+  ]
+}

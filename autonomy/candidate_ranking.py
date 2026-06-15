@@ -13,6 +13,7 @@ class CandidateRank:
     mission_relevance_score: float
     review_priority: float
     reasons: list[str]
+    memory_adjustment: float = 0.0
 
     def as_dict(self) -> dict:
         return asdict(self)
@@ -26,6 +27,8 @@ def rank_candidate(
     final_score: float,
     final_decision: SemanticDecision,
     semantic_error: str | None = None,
+    memory_adjustment: float = 0.0,
+    memory_reasons: list[str] | None = None,
 ) -> CandidateRank:
     proposal_score = proposal_component(detection)
     semantic_score = semantic_component(final_score, final_decision)
@@ -60,6 +63,11 @@ def rank_candidate(
         priority = max(priority, 0.28)
     if full_frame_result is not None and full_frame_result.score >= semantic.score:
         priority += 0.04
+    # Mission-memory read-back: a bounded nudge from prior analyst decisions.
+    # It reorders attention only — candidates are never dropped by memory.
+    priority += memory_adjustment
+    if memory_reasons:
+        reasons = reasons + list(memory_reasons)
 
     return CandidateRank(
         proposal_score=round(proposal_score, 3),
@@ -68,6 +76,7 @@ def rank_candidate(
         mission_relevance_score=round(mission_relevance_score, 3),
         review_priority=round(_clamp(priority), 3),
         reasons=reasons[:8],
+        memory_adjustment=round(memory_adjustment, 4),
     )
 
 

@@ -236,7 +236,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Run configured mission benchmark evaluations")
     parser.add_argument("--suite", default="config/mission_benchmark_suite.json")
     parser.add_argument("--output-dir", default="logs/mission_benchmark_suites")
-    parser.add_argument("--semantic-vision", choices=["local", "openai"], default=None)
+    parser.add_argument("--semantic-vision", choices=["local", "clip", "openai"], default=None)
     parser.add_argument("--openai-detail", choices=["auto", "low", "high"], default=None)
     parser.add_argument("--only", action="append", default=None, help="Run only this benchmark id. May be repeated.")
     parser.add_argument("--include-disabled", action="store_true")

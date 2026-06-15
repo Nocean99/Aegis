@@ -74,8 +74,60 @@ def test_load_report_payload_and_save_review() -> None:
             analyst_server.ROOT = old_root
 
 
+def test_acoustic_report_payload_and_review() -> None:
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        logs = root / "logs" / "acoustic" / "run"
+        logs.mkdir(parents=True)
+        report_path = logs / "acoustic_report.json"
+        report_path.write_text(
+            json.dumps(
+                {
+                    "mission_request": "Listen for vessel activity",
+                    "sensor_modality": "acoustic",
+                    "summary": {"processed": 1, "candidate_count": 1},
+                    "metadata": [],
+                    "candidates": [
+                        {
+                            "candidate_id": "acoustic-1",
+                            "audio_path": "test.wav",
+                            "proposal_reason": "high-energy acoustic segment",
+                            "review_priority": 0.7,
+                        }
+                    ],
+                    "evaluation": {"false_positive_causes": {"wave_noise": 1}, "uncertainty_causes": {"low_snr": 1}},
+                }
+            ),
+            encoding="utf-8",
+        )
+        old_root = analyst_server.ROOT
+        try:
+            analyst_server.ROOT = root
+            reports = analyst_server.list_reports()
+            assert reports[0]["type"] == "acoustic"
+            payload = analyst_server.load_report_payload("logs/acoustic/run/acoustic_report.json")
+            assert payload["ok"] is True
+            result = analyst_server.save_review(
+                {
+                    "report_path": "logs/acoustic/run/acoustic_report.json",
+                    "candidate_key": "acoustic-1",
+                    "candidate_id": "acoustic-1",
+                    "decision": "investigate",
+                    "reason_tag": "low_snr",
+                }
+            )
+            assert result["ok"] is True
+            reviews = analyst_server.load_reviews(report_path)
+            assert reviews["acoustic-1"]["reason_tag"] == "low_snr"
+            memory = analyst_server.build_mission_memory(root)
+            assert memory["acoustic_memory"]["report_count"] == 1
+            assert memory["acoustic_memory"]["recurring_acoustic_uncertainty"]["low snr"] >= 1
+        finally:
+            analyst_server.ROOT = old_root
+
+
 if __name__ == "__main__":
-    tests = [test_create_mission_plan_payload, test_load_report_payload_and_save_review]
+    tests = [test_create_mission_plan_payload, test_load_report_payload_and_save_review, test_acoustic_report_payload_and_review]
     for test in tests:
         test()
         print(f"PASS {test.__name__}")

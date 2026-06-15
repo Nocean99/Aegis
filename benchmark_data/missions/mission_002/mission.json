@@ -1,0 +1,13 @@
+{
+  "mission_id": "mission_002",
+  "name": "Acoustic only possible vessel activity",
+  "mission_request": "Monitor a protected shoreline for possible vessel activity",
+  "rgb_images": "../../../demo_data/system_benchmark_v1/mission_002/rgb",
+  "ir_images": "../../../demo_data/system_benchmark_v1/mission_002/ir",
+  "acoustic": "../../../demo_data/system_benchmark_v1/mission_002/acoustic/hydrophone_acoustic_only_001.wav",
+  "expected_contact": true,
+  "expected_priority": "medium",
+  "expected_evidence": [
+    "acoustic"
+  ]
+}

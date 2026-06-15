@@ -1,0 +1,11 @@
+{
+  "mission_id": "mission_005",
+  "name": "No contact",
+  "mission_request": "Monitor a protected shoreline for possible vessel activity",
+  "rgb_images": "../../../demo_data/system_benchmark_v1/mission_005/rgb",
+  "ir_images": "../../../demo_data/system_benchmark_v1/mission_005/ir",
+  "acoustic": "../../../demo_data/system_benchmark_v1/mission_005/acoustic/hydrophone_quiet_001.wav",
+  "expected_contact": false,
+  "expected_priority": "none",
+  "expected_evidence": []
+}

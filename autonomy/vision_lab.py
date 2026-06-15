@@ -13,6 +13,9 @@ import numpy as np
 from autonomy.config_loader import load_search_mission_config
 from autonomy.candidate_ranking import rank_candidate
 from autonomy.color_proposal_detector import MissionColorProposalDetector
+from autonomy.contact_tracker import track_video_results
+from autonomy.detection_metrics import evaluate_localization, localization_items_from_results, parse_gt_boxes
+from autonomy.memory_priors import MemoryPriors, candidate_terms, memory_adjustment
 from autonomy.mission_objective import parse_mission_request
 from autonomy.mission_vision_plan import create_mission_vision_plan
 from autonomy.objectness_proposal_detector import ObjectnessProposalDetector
@@ -43,18 +46,8 @@ def run_vision_lab(
     openai_detail: str = "auto",
     openai_timeout_s: float = 45.0,
     full_frame_semantic: str = "off",
+    memory_priors: MemoryPriors | None = None,
 ) -> Path:
-    config = load_search_mission_config(config_path)
-    objective = parse_mission_request(mission_request)
-    vision_plan = create_mission_vision_plan(objective)
-    detector = RedBlockDetector(config.target)
-    color_detector = MissionColorProposalDetector(vision_plan, min_area_px=max(25, int(config.target.min_area_px * 0.15)))
-    vehicle_detector = VehicleProposalDetector(min_area_px=12)
-    scorer = LocalSemanticVisionScorer()
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    run_dir = Path(output_dir) / stamp
-    run_dir.mkdir(parents=True, exist_ok=True)
-
     frame_items = []
     for image_path in image_paths:
         frame_items.append({"source_path": image_path, "frame_index": None, "timestamp_s": None})
@@ -75,6 +68,7 @@ def run_vision_lab(
         openai_timeout_s=openai_timeout_s,
         full_frame_semantic=full_frame_semantic,
         source_type="images",
+        memory_priors=memory_priors,
     )
 
 
@@ -161,6 +155,7 @@ def _run_vision_lab_on_frames(
     openai_timeout_s: float,
     full_frame_semantic: str,
     source_type: str,
+    memory_priors: MemoryPriors | None = None,
 ) -> Path:
     config = load_search_mission_config(config_path)
     objective = parse_mission_request(mission_request)
@@ -169,6 +164,11 @@ def _run_vision_lab_on_frames(
     color_detector = MissionColorProposalDetector(vision_plan, min_area_px=max(25, int(config.target.min_area_px * 0.15)))
     objectness_detector = ObjectnessProposalDetector(min_area_px=max(30, int(config.target.min_area_px * 0.12)))
     vehicle_detector = VehicleProposalDetector(min_area_px=12)
+    yolo_detector = None
+    if proposal_mode == "yolo":
+        from autonomy.yolo_proposal_detector import YoloProposalDetector
+
+        yolo_detector = YoloProposalDetector(categories=list(vision_plan.possible_categories))
     scorer = build_semantic_scorer(
         semantic_vision,
         openai_model=openai_model,
@@ -209,6 +209,7 @@ def _run_vision_lab_on_frames(
             proposal_mode,
             sensor_modality=sensor_modality,
             vehicle_detector=vehicle_detector,
+            yolo_detector=yolo_detector,
         )
         audit_mask = audit_mask_for_mode(
             detector,
@@ -219,6 +220,7 @@ def _run_vision_lab_on_frames(
             proposal_mode,
             sensor_modality=sensor_modality,
             vehicle_detector=vehicle_detector,
+            yolo_detector=yolo_detector,
         )
         audit = red_region_audit(audit_mask)
         crop = crop_detection(frame, detection)
@@ -247,6 +249,20 @@ def _run_vision_lab_on_frames(
             0.0 if full_frame_result is None else full_frame_result.score,
         )
         final_decision = semantic.decision if full_frame_result is None or semantic.score >= full_frame_result.score else full_frame_result.decision
+        memory_delta, memory_reasons = 0.0, []
+        if memory_priors is not None and detection.detected:
+            height, width = frame.shape[:2]
+            location_norm = None
+            if detection.bbox is not None and width and height:
+                x, y, w, h = detection.bbox
+                location_norm = ((x + w / 2.0) / width, (y + h / 2.0) / height)
+            memory_delta, memory_reasons = memory_adjustment(
+                memory_priors,
+                terms=candidate_terms(
+                    {"image_path": str(source_path), "proposal_reason": detection.proposal_reason, "semantic": asdict(semantic)}
+                ),
+                location_norm=location_norm,
+            )
         ranking = rank_candidate(
             detection=detection,
             semantic=semantic,
@@ -254,6 +270,8 @@ def _run_vision_lab_on_frames(
             final_score=final_score,
             final_decision=final_decision,
             semantic_error=semantic_error,
+            memory_adjustment=memory_delta,
+            memory_reasons=memory_reasons,
         )
         stem = _frame_stem(source_path, item.get("frame_index"))
         candidate_id = f"{index:04d}_{stem}"
@@ -289,6 +307,8 @@ def _run_vision_lab_on_frames(
                 "uncertainty_score": ranking.uncertainty_score,
                 "mission_relevance_score": ranking.mission_relevance_score,
                 "bbox": detection.bbox,
+                "frame_size": [frame.shape[1], frame.shape[0]],
+                "memory_adjustment": ranking.memory_adjustment,
                 "red_audit": audit,
                 "review_priority": ranking.review_priority,
                 "review_reasons": ranking.reasons,
@@ -339,6 +359,13 @@ def _run_vision_lab_on_frames(
         reverse=True,
     )[:25]
     evaluation = evaluate_results(results, threshold=eval_threshold) if labels else None
+    if evaluation is not None:
+        localization_items = localization_items_from_results(results)
+        if localization_items:
+            evaluation["localization"] = evaluate_localization(localization_items).as_dict()
+    tracks_summary = None
+    if source_type == "video":
+        tracks_summary = track_video_results(results)
     report = {
         "timestamp": stamp,
         "mission_request": mission_request,
@@ -348,6 +375,8 @@ def _run_vision_lab_on_frames(
         "full_frame_semantic_mode": full_frame_semantic,
         "source_type": source_type,
         "proposal_mode": proposal_mode,
+        "memory_priors_active": memory_priors is not None and not memory_priors.is_empty(),
+        "memory_missions_observed": 0 if memory_priors is None else memory_priors.missions_observed,
         "image_count": len(frame_items),
         "summary": {
             "processed": len(results),
@@ -372,6 +401,7 @@ def _run_vision_lab_on_frames(
             ],
         },
         "evaluation": evaluation,
+        "tracks": tracks_summary,
         "results": results,
     }
     report_path = run_dir / "vision_report.json"
@@ -418,9 +448,9 @@ def main() -> None:
     parser.add_argument("--video", action="store_true", help="Treat the input path as a video file or folder of videos")
     parser.add_argument(
         "--proposal-mode",
-        choices=["precise", "high-recall", "mission-color", "vehicle"],
+        choices=["precise", "high-recall", "mission-color", "vehicle", "yolo"],
         default="mission-color",
-        help="mission-color adapts color proposals to the mission text; high-recall is broad red-focused; precise is stricter.",
+        help="mission-color adapts color proposals to the mission text; high-recall is broad red-focused; precise is stricter; yolo uses a learned detector (requires the ml extras).",
     )
     parser.add_argument("--sample-every-s", type=float, default=1.0, help="For video mode, sample one frame every N seconds")
     parser.add_argument("--max-frames", type=int, default=None, help="For video mode, stop after N sampled frames")
@@ -428,7 +458,7 @@ def main() -> None:
     parser.add_argument("--min-shortlist-score", type=float, default=0.25, help="Minimum semantic score for the review shortlist")
     parser.add_argument("--labels-csv", default=None, help="Optional CSV with image_path,expected_match,label columns for accuracy evaluation")
     parser.add_argument("--eval-threshold", type=float, default=0.25, help="Semantic score threshold for labeled precision/recall evaluation")
-    parser.add_argument("--semantic-vision", choices=["local", "openai"], default="local", help="Semantic scorer backend")
+    parser.add_argument("--semantic-vision", choices=["local", "clip", "openai"], default="local", help="Semantic scorer backend. clip runs a local open-vocabulary model (requires the ml extras).")
     parser.add_argument("--openai-model", default=None, help="Required with --semantic-vision openai unless OPENAI_VISION_MODEL is set")
     parser.add_argument(
         "--openai-detail",
@@ -448,7 +478,24 @@ def main() -> None:
         action="store_true",
         help="Only save debug/crop images for detected candidates. The JSON report still includes every image.",
     )
+    parser.add_argument(
+        "--memory-priors",
+        default=None,
+        help=(
+            "Optional mission-memory priors JSON (see autonomy.memory_priors). "
+            "Use 'auto' to build priors from reviewed reports under logs/. "
+            "Priors nudge candidate ranking from past analyst decisions."
+        ),
+    )
     args = parser.parse_args()
+
+    memory_priors = None
+    if args.memory_priors == "auto":
+        from autonomy.memory_priors import load_memory_priors
+
+        memory_priors = load_memory_priors(".")
+    elif args.memory_priors:
+        memory_priors = MemoryPriors.load(args.memory_priors)
 
     if args.video:
         video_paths = collect_video_paths(args.paths)
@@ -475,6 +522,8 @@ def main() -> None:
             openai_timeout_s=args.openai_timeout_s,
             full_frame_semantic=args.full_frame_semantic,
         )
+        if memory_priors is not None:
+            print("Note: --memory-priors currently applies to image missions; ignored for video.")
     else:
         image_paths = collect_image_paths(args.paths)
         if not image_paths:
@@ -495,6 +544,7 @@ def main() -> None:
             openai_detail=args.openai_detail,
             openai_timeout_s=args.openai_timeout_s,
             full_frame_semantic=args.full_frame_semantic,
+            memory_priors=memory_priors,
         )
     print(f"Vision report saved: {report_path}")
 
@@ -508,7 +558,10 @@ def detect_with_mode(
     proposal_mode: str,
     sensor_modality: str = "rgb",
     vehicle_detector: VehicleProposalDetector | None = None,
+    yolo_detector=None,
 ):
+    if proposal_mode == "yolo" and yolo_detector is not None:
+        return yolo_detector.detect(frame, modality=sensor_modality, allow_fallback=True)
     if proposal_mode == "vehicle" or (proposal_mode == "mission-color" and is_vehicle_vision_plan(vision_plan)):
         detector_to_use = vehicle_detector or VehicleProposalDetector()
         return detector_to_use.detect(frame, modality=sensor_modality, allow_fallback=True)
@@ -532,7 +585,10 @@ def audit_mask_for_mode(
     proposal_mode: str,
     sensor_modality: str = "rgb",
     vehicle_detector: VehicleProposalDetector | None = None,
+    yolo_detector=None,
 ) -> np.ndarray:
+    if proposal_mode == "yolo" and yolo_detector is not None:
+        return yolo_detector.mask(frame, modality=sensor_modality)
     if proposal_mode == "vehicle" or (proposal_mode == "mission-color" and is_vehicle_vision_plan(vision_plan)):
         detector_to_use = vehicle_detector or VehicleProposalDetector()
         return detector_to_use.mask(frame, modality=sensor_modality)
@@ -562,6 +618,10 @@ def build_semantic_scorer(
 ):
     if name == "openai":
         return OpenAIVisionLanguageScorer(model=openai_model, detail=openai_detail, timeout_s=openai_timeout_s)
+    if name == "clip":
+        from autonomy.clip_semantic_scorer import ClipSemanticVisionScorer
+
+        return ClipSemanticVisionScorer()
     return LocalSemanticVisionScorer()
 
 
@@ -637,11 +697,14 @@ def load_labels(path: str | Path | None) -> dict[tuple[str, int | None], dict]:
         for row in reader:
             expected = _parse_bool(row["expected_match"])
             frame_index = row.get("frame_index", "").strip()
-            labels[_label_key(row["image_path"], int(frame_index) if frame_index else None)] = {
+            entry = {
                 "expected_match": expected,
                 "label": row.get("label", ""),
                 "notes": row.get("notes", ""),
             }
+            if "gt_boxes" in (reader.fieldnames or []):
+                entry["gt_boxes"] = parse_gt_boxes(row.get("gt_boxes"))
+            labels[_label_key(row["image_path"], int(frame_index) if frame_index else None)] = entry
     return labels
 
 

@@ -8,6 +8,20 @@ The platform combines mission planning, contextual search priorities, proposal d
 
 This repository is for simulation, autonomy workflow development, and perception evaluation. It is not flight-control firmware and should not be connected directly to real motors.
 
+## Aegis Mission Intelligence v1
+
+Current MVP boundary:
+
+| Area | v1 Status |
+|---|---|
+| Modalities | RGB, infrared, acoustic |
+| Outputs | candidates, analyst review, mission memory, mission reports |
+| Benchmarks | SAR, RGB vehicles, IR vehicles, acoustic underwater noise |
+| Multi-sensor demo | shoreline monitoring |
+| System benchmark | five mission-level contact cases |
+
+The v1 product story is simple: Aegis takes RGB imagery, thermal imagery, and hydrophone audio from protected shoreline missions, then produces ranked contacts with supporting evidence across sensors.
+
 ## Why This Exists
 
 Modern missions can generate thousands of images, video frames, detections, and sensor observations.
@@ -47,6 +61,61 @@ flowchart TD
 PX4, Gazebo, dashboards, cameras, videos, and future sensor feeds are integration points. The mission intelligence layer is the product.
 
 Low-level vehicle control stays separated from mission reasoning. Perception scoring does not directly control a vehicle; it produces reviewable evidence and mission reports.
+
+## Benchmark Snapshot
+
+| Benchmark | Best Current Strategy | Capture Precision | Capture Recall |
+|---|---|---:|---:|
+| SAR People | review-priority API | 91.0% | 89.7% |
+| RGB Vehicles | API cleanup | 73.2% | 95.3% |
+| IR Vehicles | local IR triage | 89.4% | 100.0% |
+| Acoustic v1 | anthropogenic acoustic triage | 70.4% | 95.0% |
+| System Benchmark v1 | multi-sensor mission workflow | 100.0% | 100.0% |
+
+![Aegis benchmark snapshot](docs/assets/aegis_benchmark_snapshot.png)
+
+The headline lesson: review policy should depend on modality. RGB vehicle evidence benefits from semantic cleanup after local proposals; infrared vehicle evidence currently performs best with local hot-blob triage.
+
+Measurement note: capture recall is measured after full-frame fallback. When no local proposal is found, the whole frame is preserved as a low-confidence candidate for review, so capture recall is intentionally biased high and capture precision reflects the resulting review cost. Read 100% capture recall as "no target was silently dropped before analyst review," not as detector accuracy.
+
+The acoustic benchmark now has a measured before/after result. The first baseline run reached 23.7% precision and 45.0% recall; after adding anthropogenic acoustic triage, Aegis reaches 70.4% precision and 95.0% recall on the same 60 underwater-noise clips.
+
+## Multi-Sensor Shoreline Demo
+
+Aegis now includes a small maritime monitoring demo that combines visual, infrared, and acoustic evidence into one mission workflow.
+
+Scenario:
+
+```text
+Protected coastal zone.
+Mission: monitor for possible vessel activity.
+Inputs: RGB shoreline image, thermal shoreline image, hydrophone recording.
+Output: unified contacts, evidence by modality, analyst review queue, mission report.
+```
+
+Example result from the demo run:
+
+| Output | Result |
+|---|---:|
+| Candidates generated | 6 |
+| High-priority contacts | 1 |
+| Stage errors | 0 |
+| Multi-sensor confirmation | true |
+
+The highest-priority contact combined RGB, infrared, and acoustic evidence: a visual vessel-like proposal, a thermal hotspot, and an engine-like acoustic segment.
+
+![Aegis multi-sensor demo summary](docs/assets/aegis_multisensor_demo_summary.png)
+
+Run it with:
+
+```bash
+./scripts/run_multisensor_demo.sh \
+  --mission-request "Monitor a protected shoreline for possible vessel activity" \
+  --rgb-images demo_data/shoreline_v1/rgb \
+  --ir-images demo_data/shoreline_v1/ir \
+  --acoustic demo_data/shoreline_v1/acoustic/hydrophone_contact_001.wav \
+  --output-dir logs/multisensor_missions
+```
 
 ## Core Concepts
 
@@ -132,10 +201,14 @@ Mission: Search for a missing person near a shoreline
 - Fast dashboard simulation for command, telemetry, alerts, and logs
 - Image and video mission evaluation
 - Vision benchmark suite across mission types
-- Color, high-recall, and objectness proposal detection
+- Color, high-recall, objectness, vehicle, and optional YOLO proposal detection
 - Local semantic scoring interface
+- Optional local CLIP open-vocabulary semantic scoring (offline, `pip install '.[ml]'`, see `docs/LEARNED_MODELS.md`)
 - Optional OpenAI vision-language scoring backend
 - Full-frame fallback review for detector misses and rejected crops
+- IoU-based localization metrics (precision/recall/F1, mean IoU, AP) alongside capture metrics via a `gt_boxes` labels column
+- Multi-frame contact tracking for video missions (one contact per track, not per frame)
+- Pixel-to-ground georeferencing for camera detections (NED + lat/lon)
 - Candidate ranking with review-priority explanations
 - Analyst dashboard for reviewing candidates, metrics, reports, and mission memory
 - Mission memory summaries from past reports and analyst decisions
@@ -187,88 +260,7 @@ Example decision record:
 
 ## Benchmarking
 
-The benchmark suite is designed to evaluate the system across mission contexts, not just one detector task.
-
-Current active benchmarks:
-
-- people in aerial/grass imagery
-- vehicles in aerial/incident-response imagery
-- DroneVehicle RGB and infrared vehicle labels
-
-Configured dataset placeholders:
-
-- boats and water/shoreline search
-- debris and incident scenes
-- distress signals and markers
-- fire and smoke
-- structure damage and blocked access
-- animals or livestock
-
-Each benchmark should include:
-
-- positives
-- near misses
-- hard negatives
-- small or partially occluded targets
-- confusing context that should not be over-prioritized
-
-Run the configured suite:
-
-```bash
-./scripts/run_mission_benchmark_suite.sh
-```
-
-Convert a YOLOv8 person dataset into Aegis benchmark labels:
-
-```bash
-./scripts/import_yolo_person_benchmark.sh "/path/to/yolo_dataset"
-```
-
-This generates:
-
-```text
-datasets/benchmarks/people/sard_labels.csv
-```
-
-Analyze and import the DroneVehicle RGB/infrared dataset:
-
-```bash
-./scripts/analyze_dronevehicle_benchmark.sh "/path/to/VisDrone-DroneVehicle"
-./scripts/import_dronevehicle_vehicle_benchmark.sh "/path/to/VisDrone-DroneVehicle"
-```
-
-This generates:
-
-```text
-datasets/benchmarks/vehicles/dronevehicle_rgb_labels.csv
-datasets/benchmarks/vehicles/dronevehicle_ir_labels.csv
-datasets/benchmarks/vehicles/dronevehicle_stats.json
-docs/DRONEVEHICLE_BENCHMARK_ANALYSIS.md
-```
-
-The suite writes:
-
-```text
-logs/mission_benchmark_suites/<timestamp>/mission_benchmark_suite_report.json
-logs/mission_benchmark_suites/<timestamp>/mission_benchmark_suite_report.html
-```
-
-The key benchmark distinction is:
-
-- **Confirmed-match metrics:** how often the system confidently identifies the target.
-- **Analyst-capture metrics:** how often the system preserves the right evidence for review.
-
-For mission workflows, missing a possible target is usually worse than showing an analyst a few extra uncertain images.
-
-Recent SAR benchmark:
-
-- evaluated 5,712 annotated search-and-rescue images
-- ran a full local triage pass across the complete dataset
-- tested two smaller OpenAI review samples instead of sending the full dataset to the API
-- improved API-sample capture precision from 70% to 91% with review-priority sampling
-- kept capture recall near 90%, meaning likely person evidence was still preserved for analyst review
-
-Benchmark snapshot:
+The benchmark suite evaluates the system across mission contexts and sensor modalities, not just one detector task.
 
 | Benchmark | Images | Review Strategy | Capture Precision | Capture Recall |
 |---|---:|---|---:|---:|
@@ -280,40 +272,25 @@ Benchmark snapshot:
 | DroneVehicle IR local subset | 500 | local vehicle proposals | 89.4% | 100.0% |
 | DroneVehicle IR API review | 100 | review-priority sample | 61.1% | 100.0% |
 
-Vehicle modality recommendation:
-
-| Modality | Best Current Strategy | Why |
-|---|---|---|
-| RGB vehicles | selective API semantic review | improves capture precision from 50.0% to 73.2% while keeping recall high |
-| IR vehicles | local hot-blob triage | keeps 89.4% capture precision and 100.0% capture recall; API over-keeps thermal clutter |
-
-DroneVehicle benchmark readiness:
-
-- generated separate RGB and infrared vehicle labels
-- 28,439 RGB images and 28,439 infrared images
-- 28,439 detectable RGB/IR pairs
-- 953,164 vehicle annotations
-- 56,040 positive image cases and 838 negative image cases
-- precision can be measured directly from this dataset
-
 Recent benchmark direction:
 
 - full-frame fallback significantly improved target capture
-- vehicle benchmark performance improved strongly after crop-reject fallback
-- DroneVehicle RGB/IR local proposal baselines now preserve likely vehicle evidence instead of returning zero detections
-- RGB API review improved capture precision from 50.0% to 73.2% while keeping capture recall high at 95.3%
-- IR API review preserved recall but reduced precision, so thermal review needs a stricter prompt or threshold before it beats local triage
-- remaining work is reducing noisy RGB review items further and tuning thermal API review against hard negatives
+- review-priority API sampling improved SAR people search
+- RGB vehicle evidence benefits from semantic API cleanup
+- IR vehicle evidence currently performs best with local hot-blob triage
+- thermal API review needs stricter prompting or a stricter `NEEDS_REVIEW` threshold
 
-Latest people-search benchmark notes:
+Detailed benchmark reports and commands:
 
 ```text
+docs/RUNNING_BENCHMARKS.md
+docs/AEGIS_MISSION_INTELLIGENCE_V1.md
+docs/ACOUSTIC_INTELLIGENCE_ROADMAP.md
+docs/ACOUSTIC_BENCHMARK_V1_SNIPPET.md
+docs/ACOUSTIC_BENCHMARK_TUNING_REPORT.md
+docs/MULTISENSOR_SHORELINE_DEMO.md
+docs/SYSTEM_BENCHMARK_V1_REPORT.md
 docs/SARD_BENCHMARK_REPORT.md
-```
-
-Latest vehicle benchmark notes:
-
-```text
 docs/VEHICLE_BENCHMARK_REPORT.md
 docs/DRONEVEHICLE_BENCHMARK_ANALYSIS.md
 docs/DRONEVEHICLE_RGB_BENCHMARK_REPORT.md
@@ -333,6 +310,12 @@ Aegis Vision Intelligence
 ```
 
 The vehicle modality benchmark makes acoustic/sonar sensing the next logical expansion: a non-visual evidence stream that can use the same mission-memory, benchmark, and analyst-review workflow.
+
+Phase 1/2 acoustic evidence support now includes `.wav` ingestion, spectrogram generation, high-energy and anthropogenic acoustic proposals, candidate JSON, and a simple acoustic report.
+
+The analyst dashboard can review acoustic candidates with spectrograms, time ranges, proposal scores, reasons, review priority, and approve/reject/investigate decisions.
+
+The first multi-sensor demo runner combines one RGB image set, one IR image set, and one acoustic recording into a unified candidate list and mission report.
 
 ## Mission Memory
 
@@ -367,24 +350,6 @@ Run the full mission-intelligence loop over image or video evidence:
   --labels-csv "/path/to/labels.csv"
 ```
 
-Run with OpenAI semantic vision:
-
-```bash
-./scripts/run_mission_evaluation.sh "/path/to/images" \
-  --mission-request "Search the shoreline for a missing person wearing an orange life vest" \
-  --labels-csv "/path/to/labels.csv" \
-  --semantic-vision openai \
-  --openai-detail high \
-  --full-frame-semantic misses
-```
-
-The evaluator writes:
-
-```text
-logs/mission_evaluations/<timestamp>/mission_evaluation_report.json
-logs/mission_evaluations/<timestamp>/mission_evaluation_report.html
-```
-
 The report combines mission command parsing, contextual search priorities, vision planning, candidate detection, semantic scoring, evaluation metrics, and stage health.
 
 Each mission report includes:
@@ -398,29 +363,11 @@ Each mission report includes:
 - mission memory
 - recommendations
 
+Detailed local/API benchmark commands are in [docs/RUNNING_BENCHMARKS.md](docs/RUNNING_BENCHMARKS.md).
+
 ## Optional Vision-Language Scoring
 
-The local semantic scorer is intentionally conservative. It ranks candidates but does not claim exact arbitrary object recognition. For stronger open-vocabulary testing, the project supports an optional OpenAI-backed vision scorer.
-
-Set up local credentials. The `.env` file is ignored by Git and should not be committed:
-
-```bash
-cp .env.example .env
-```
-
-Then edit `.env`:
-
-```text
-OPENAI_API_KEY=your_api_key_here
-OPENAI_VISION_MODEL=gpt-4o
-OPENAI_IMAGE_DETAIL=auto
-```
-
-Check the environment:
-
-```bash
-./scripts/check_openai_vision_env.sh
-```
+The local semantic scorer is intentionally conservative. It ranks candidates but does not claim exact arbitrary object recognition. For stronger open-vocabulary testing, the project supports an optional OpenAI-backed vision scorer. Setup and benchmark commands are documented in [docs/RUNNING_BENCHMARKS.md](docs/RUNNING_BENCHMARKS.md).
 
 ## Simulation And Drone Validation
 
@@ -436,28 +383,9 @@ Open:
 http://localhost:8000
 ```
 
-Fast scenario tests:
-
-```bash
-./scripts/run_fast_sim_tests.sh
-```
-
-PX4/Gazebo validation scripts:
-
-```bash
-./scripts/check_px4_env.sh
-./scripts/run_red_block_world.sh
-./scripts/run_red_block_gui.sh
-./scripts/run_px4_camera_standalone.sh
-./scripts/run_uxrce_agent.sh
-./scripts/run_search_mission.sh
-./scripts/check_ros2_env.sh
-./scripts/start_camera_bridge.sh
-./scripts/verify_camera_feed.sh
-./scripts/debug_camera_frame.sh
-```
-
 PX4 remains responsible for low-level stabilization and flight control. Mission logic should call controller interfaces, not publish raw flight-control messages directly.
+
+PX4/Gazebo setup details live in [docs/PX4_GAZEBO_SETUP.md](docs/PX4_GAZEBO_SETUP.md).
 
 ## Technology Stack
 
@@ -480,45 +408,40 @@ Core modules live in `autonomy/`:
 - `mission_evaluation.py`: full mission evaluation pipeline
 - `mission_benchmark_suite.py`: benchmark suite runner
 - `mission_memory.py`: report and analyst-review memory
+- `acoustic_intelligence.py`: WAV ingestion, spectrograms, acoustic proposals, and reports
+- `multisensor_mission_demo.py`: RGB, IR, and acoustic mission demo report
 - `world_model.py`: local grid map of searched cells, candidates, and confidence
 - `px4_controller_interface.py`: ROS 2/PX4 Offboard wrapper
 
 ## Tests
 
-Run focused mission-intelligence tests:
+Run the main mission-intelligence checks:
 
 ```bash
-python3 tests/test_vision_lab.py
 python3 tests/test_mission_memory.py
-python3 tests/test_yolo_benchmark_importer.py
-python3 tests/test_yolo_obb_vehicle_importer.py
-python3 tests/test_dronevehicle_benchmark_analysis.py
-python3 tests/test_dronevehicle_importer.py
-python3 tests/test_analyst_server.py
-python3 tests/test_mission_benchmark_suite.py
 python3 tests/test_mission_evaluation.py
-python3 tests/test_semantic_vision.py
-python3 tests/test_contextual_search_plan.py
-python3 tests/test_vision_report_viewer.py
-```
-
-Run core autonomy tests:
-
-```bash
-python3 tests/test_autonomy_stack.py
-python3 tests/test_search_mission.py
-python3 tests/test_world_model.py
+python3 tests/test_vehicle_proposal_layer.py
+python3 tests/test_multisensor_mission_demo.py
 ```
 
 ## Roadmap
 
+Recently completed:
+
+- IoU localization metrics (`autonomy/detection_metrics.py`) reported alongside capture metrics
+- multi-frame contact tracking for video missions (`autonomy/contact_tracker.py`)
+- local CLIP semantic scorer and YOLO proposal detector as optional `[ml]` extras (`docs/LEARNED_MODELS.md`)
+- pixel-to-ground georeferencing (`autonomy/georeference.py`)
+- closed-loop PX4/Gazebo runbook and chained launcher (`docs/CLOSED_LOOP_DEMO_RUNBOOK.md`, `scripts/run_closed_loop_demo.sh`)
+
 Near-term:
 
-- add real dashboard screenshots and benchmark screenshots to this README
+- record the demo video (`docs/DEMO_VIDEO_PLAN.md`) and add a dashboard screenshot to this README
 - collect broader labeled datasets for boats, debris, signals, fire/smoke, structure damage, and animals
 - improve candidate ranking to reduce noisy review items while preserving capture recall
 - improve analyst review workflow and report browsing
 - keep expanding mission memory into practical recommendations
+- wire georeferenced contact locations into live search missions and the dashboard
 
 Medium-term:
 

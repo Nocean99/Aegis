@@ -9,6 +9,7 @@ from pathlib import Path
 def build_mission_memory(root: str | Path = ".") -> dict:
     root_path = Path(root)
     report_paths = sorted((root_path / "logs").glob("**/vision_report.json"), reverse=True)
+    acoustic_memory = build_acoustic_memory(root_path)
     mission_counts: Counter[str] = Counter()
     review_counts: Counter[str] = Counter()
     false_positive_terms: Counter[str] = Counter()
@@ -100,6 +101,50 @@ def build_mission_memory(root: str | Path = ".") -> dict:
         ),
         "recent_reports": recent_reports,
         "recommendations": memory_recommendations(false_positive_terms, false_negative_terms, category_metrics),
+        "acoustic_memory": acoustic_memory,
+    }
+
+
+def build_acoustic_memory(root_path: Path) -> dict:
+    recurring_false_positives: Counter[str] = Counter()
+    recurring_uncertainty: Counter[str] = Counter()
+    proposal_reasons: Counter[str] = Counter()
+    report_count = 0
+    candidate_count = 0
+    for report_path in sorted((root_path / "logs").glob("**/acoustic_report.json"), reverse=True):
+        try:
+            report = json.loads(report_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        report_count += 1
+        candidates = report.get("candidates") or []
+        candidate_count += len(candidates)
+        proposal_reasons.update(str(item.get("proposal_reason") or "unknown") for item in candidates)
+        evaluation = report.get("evaluation") or {}
+        recurring_false_positives.update(evaluation.get("false_positive_causes") or {})
+        recurring_uncertainty.update(evaluation.get("uncertainty_causes") or {})
+        review_path = report_path.with_name("candidate_reviews.json")
+        if review_path.exists():
+            try:
+                reviews = json.loads(review_path.read_text(encoding="utf-8"))
+            except json.JSONDecodeError:
+                reviews = {}
+            for review in reviews.values():
+                tag = normalize_reason_tag(review.get("reason_tag") or review.get("reason"))
+                if not tag:
+                    continue
+                decision = normalize_review_decision(review)
+                if decision == "reject":
+                    recurring_false_positives[tag] += 1
+                elif decision == "investigate":
+                    recurring_uncertainty[tag] += 1
+    return {
+        "report_count": report_count,
+        "candidate_count": candidate_count,
+        "proposal_reasons": pretty_counts(proposal_reasons),
+        "recurring_acoustic_false_positives": pretty_counts(recurring_false_positives),
+        "recurring_acoustic_uncertainty": pretty_counts(recurring_uncertainty),
+        "recommended_acoustic_data": recommended_acoustic_data(recurring_false_positives, recurring_uncertainty),
     }
 
 
@@ -347,10 +392,30 @@ def normalize_reason_tag(value) -> str:
         "building",
         "hot_object",
         "thermal_clutter",
+        "wave_noise",
+        "dock_machinery",
+        "wind_noise",
+        "low_snr",
+        "overlapping_signals",
+        "vessel_sound",
+        "acoustic_clutter",
         "false_alarm",
         "uncertain_vehicle",
     }
     return tag if tag in allowed else ""
+
+
+def recommended_acoustic_data(false_positive_causes: Counter[str], uncertainty_causes: Counter[str]) -> list[str]:
+    recommendations = ["vessel passes", "quiet harbour negatives", "storm/wave negatives"]
+    if false_positive_causes.get("dock_machinery"):
+        recommendations.append("dock machinery negatives")
+    if false_positive_causes.get("wind_noise"):
+        recommendations.append("wind noise negatives")
+    if uncertainty_causes.get("low_snr"):
+        recommendations.append("low-SNR vessel clips")
+    if uncertainty_causes.get("overlapping_signals"):
+        recommendations.append("overlapping vessel and ambient sound clips")
+    return list(dict.fromkeys(recommendations))
 
 
 def _avg(values) -> float | None:

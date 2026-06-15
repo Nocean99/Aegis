@@ -1,0 +1,14 @@
+{
+  "mission_id": "mission_004",
+  "name": "RGB ambiguous, acoustic confirms",
+  "mission_request": "Monitor a protected shoreline for possible vessel activity",
+  "rgb_images": "../../../demo_data/system_benchmark_v1/mission_004/rgb",
+  "ir_images": "../../../demo_data/system_benchmark_v1/mission_004/ir",
+  "acoustic": "../../../demo_data/system_benchmark_v1/mission_004/acoustic/hydrophone_confirming_001.wav",
+  "expected_contact": true,
+  "expected_priority": "high",
+  "expected_evidence": [
+    "rgb",
+    "acoustic"
+  ]
+}

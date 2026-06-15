@@ -28,6 +28,16 @@ log/
 *.pem
 *.key
 
+# Third-party / research-licensed benchmark data.
+# Do not redistribute: SanctSound audio, DroneVehicle/SARD imagery, and similar
+# datasets are downloaded locally. See docs/RUNNING_BENCHMARKS.md for sources.
+benchmark_data/**
+!benchmark_data/missions/
+!benchmark_data/missions/**
+datasets/**
+!datasets/**/
+!datasets/**/.gitkeep
+
 
 # Personal profile drafts kept outside this project
 NOCEAN99_PROFILE_README.md
