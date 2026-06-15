@@ -4,6 +4,7 @@ from __future__ import annotations
 the login flow, protected routes, health, and metrics over actual HTTP."""
 
 import http.client
+import importlib
 import os
 import sys
 import threading
@@ -17,6 +18,8 @@ os.environ["ANALYST_PASSWORD"] = "test-password-123"
 os.environ["ANALYST_USERNAME"] = "tester"
 
 import analyst_server  # noqa: E402
+
+analyst_server = importlib.reload(analyst_server)
 
 
 def start_server() -> tuple[ThreadingHTTPServer, int]:
