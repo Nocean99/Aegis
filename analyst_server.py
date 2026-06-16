@@ -30,6 +30,7 @@ ROOT = Path(__file__).parent.resolve()
 STATIC = ROOT / "static"
 IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
 REPORT_NAMES = {"vision_report.json", "acoustic_report.json"}
+DEFAULT_REPORT_LIMIT = 15
 
 AUTH_CONFIG = load_auth_config()
 SESSIONS = SessionStore(ttl_s=AUTH_CONFIG.session_ttl_s)
@@ -97,7 +98,8 @@ class AnalystHandler(SimpleHTTPRequestHandler):
             self._send_text(METRICS.render(active_sessions=SESSIONS.active_count()))
             return
         if parsed.path == "/api/reports":
-            self._send_json({"reports": list_reports()})
+            limit = parse_report_limit(first_query_value(parsed.query, "limit"))
+            self._send_json({"reports": list_reports(limit=limit)})
             return
         if parsed.path == "/api/report":
             report_path = first_query_value(parsed.query, "path")
@@ -282,11 +284,26 @@ class AnalystHandler(SimpleHTTPRequestHandler):
         self.wfile.write(data)
 
 
-def list_reports() -> list[dict]:
+def parse_report_limit(value: str | None) -> int:
+    if value is None:
+        return DEFAULT_REPORT_LIMIT
+    try:
+        limit = int(value)
+    except ValueError:
+        return DEFAULT_REPORT_LIMIT
+    return max(1, min(limit, 100))
+
+
+def report_updated_at(report_path: Path) -> str:
+    return datetime.fromtimestamp(report_path.stat().st_mtime, timezone.utc).isoformat()
+
+
+def list_reports(*, limit: int | None = DEFAULT_REPORT_LIMIT) -> list[dict]:
     reports = []
     for report_path in sorted((ROOT / "logs").glob("**/vision_report.json"), reverse=True):
         try:
             data = json.loads(report_path.read_text(encoding="utf-8"))
+            updated_at = report_updated_at(report_path)
         except (OSError, json.JSONDecodeError):
             continue
         summary = data.get("summary") or {}
@@ -296,6 +313,7 @@ def list_reports() -> list[dict]:
             {
                 "type": "vision",
                 "path": str(report_path.relative_to(ROOT)),
+                "updated_at": updated_at,
                 "timestamp": data.get("timestamp"),
                 "mission_request": data.get("mission_request"),
                 "proposal_mode": data.get("proposal_mode"),
@@ -312,6 +330,7 @@ def list_reports() -> list[dict]:
     for report_path in sorted((ROOT / "logs").glob("**/acoustic_report.json"), reverse=True):
         try:
             data = json.loads(report_path.read_text(encoding="utf-8"))
+            updated_at = report_updated_at(report_path)
         except (OSError, json.JSONDecodeError):
             continue
         summary = data.get("summary") or {}
@@ -320,6 +339,7 @@ def list_reports() -> list[dict]:
             {
                 "type": "acoustic",
                 "path": str(report_path.relative_to(ROOT)),
+                "updated_at": updated_at,
                 "timestamp": report_path.parent.name,
                 "mission_request": data.get("mission_request"),
                 "proposal_mode": "acoustic",
@@ -333,6 +353,9 @@ def list_reports() -> list[dict]:
                 "capture_recall": evaluation.get("capture_recall"),
             }
         )
+    reports.sort(key=lambda item: item.get("updated_at") or item.get("timestamp") or "", reverse=True)
+    if limit is not None:
+        reports = reports[:limit]
     return reports
 
 

@@ -36,14 +36,15 @@ class SemanticVisionScorer(Protocol):
 
 
 class LocalSemanticVisionScorer:
-    """Deterministic placeholder for the future vision-language model.
+    """Deterministic local triage scorer.
 
     This scorer does not claim make/model recognition. It uses objective text,
-    candidate geometry, and simple visual cues to decide whether a candidate
-    deserves human review while preserving the same interface a real VLM will use.
+    proposal geometry, detector confidence, and simple visual cues to decide
+    whether a candidate deserves human review while preserving the same
+    interface a real VLM will use.
     """
 
-    model_name = "local-semantic-placeholder-v1"
+    model_name = "local-visual-triage-v2"
 
     def score(
         self,
@@ -62,6 +63,9 @@ class LocalSemanticVisionScorer:
                 model_name=self.model_name,
                 tags=tags,
             )
+
+        if _is_vehicle_objective(objective) or _is_vehicle_detection(detection):
+            return _score_vehicle_candidate(objective, crop_bgr, detection)
 
         score = detection.confidence * 0.45
         if objective.extracted_colors and crop_bgr is not None:
@@ -127,6 +131,84 @@ class LocalSemanticVisionScorer:
             tags=sorted(set(tags + ["full_frame_scan", "local_scorer_limited"])),
             needs_human_review=True,
         )
+
+
+def _score_vehicle_candidate(
+    objective: MissionObjective,
+    crop_bgr: np.ndarray | None,
+    detection: TargetDetection,
+) -> SemanticVisionResult:
+    tags = [f"requested:{category}" for category in objective.extracted_categories]
+    if detection.sensor_modality:
+        tags.append(f"sensor:{detection.sensor_modality}")
+    if detection.proposal_reason:
+        tags.append(f"proposal:{detection.proposal_reason}")
+    if detection.bbox:
+        _, _, width, height = detection.bbox
+        aspect = width / float(max(1, height))
+        tags.append(f"aspect:{aspect:.2f}")
+    else:
+        aspect = 1.0
+        tags.append("full_frame_fallback")
+
+    confidence_signal = max(0.0, min(1.0, detection.confidence))
+    size_signal = min(1.0, max(0.0, detection.area_ratio * 45.0)) if detection.area_ratio else 0.0
+    rectangle_signal = 1.0 if detection.proposal_reason and "rectangle" in detection.proposal_reason else 0.35
+    aspect_signal = 1.0 if 0.35 <= aspect <= 3.2 else 0.45
+    contrast_signal = _crop_contrast_signal(crop_bgr)
+    color_hits = _matching_color_tags(crop_bgr, objective.extracted_colors) if objective.extracted_colors and crop_bgr is not None else []
+    tags.extend(color_hits)
+
+    score = (
+        0.18
+        + confidence_signal * 0.38
+        + size_signal * 0.12
+        + rectangle_signal * 0.14
+        + aspect_signal * 0.08
+        + contrast_signal * 0.10
+        + (0.08 if color_hits else 0.0)
+    )
+    if detection.proposal_reason == "full-frame fallback":
+        score = min(score, 0.46)
+    score = max(0.0, min(1.0, score))
+    if score >= 0.76:
+        decision = SemanticDecision.LIKELY_MATCH
+    elif score >= 0.55:
+        decision = SemanticDecision.POSSIBLE_MATCH
+    else:
+        decision = SemanticDecision.NEEDS_REVIEW
+    explanation = (
+        "Local vehicle triage scored this candidate from proposal confidence, "
+        "bounding-box shape, relative size, and crop contrast. This is evidence "
+        "prioritization for analyst review, not exact vehicle identity recognition."
+    )
+    return SemanticVisionResult(
+        score=round(score, 3),
+        decision=decision,
+        explanation=explanation,
+        model_name=LocalSemanticVisionScorer.model_name,
+        tags=sorted(set(tags)),
+        needs_human_review=True,
+    )
+
+
+def _is_vehicle_objective(objective: MissionObjective) -> bool:
+    vehicle_terms = {"vehicle", "car", "truck", "van", "bus", "freight", "freight car"}
+    categories = {item.lower() for item in objective.extracted_categories}
+    text = objective.raw_request.lower()
+    return bool(categories & vehicle_terms) or any(term in text for term in vehicle_terms)
+
+
+def _is_vehicle_detection(detection: TargetDetection) -> bool:
+    reason = (detection.proposal_reason or "").lower()
+    return any(term in reason for term in ("vehicle", "aerial object", "hot ir blob", "full-frame fallback"))
+
+
+def _crop_contrast_signal(crop_bgr: np.ndarray | None) -> float:
+    if crop_bgr is None or crop_bgr.size == 0:
+        return 0.2
+    gray = cv2.cvtColor(crop_bgr, cv2.COLOR_BGR2GRAY)
+    return max(0.0, min(1.0, float(np.std(gray)) / 64.0))
 
 
 class OpenAIVisionLanguageScorer:

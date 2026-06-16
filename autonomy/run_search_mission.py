@@ -37,7 +37,7 @@ def main() -> None:
         "--semantic-vision",
         choices=["local"],
         default="local",
-        help="Semantic candidate scorer. local is a deterministic placeholder for future VLM scoring.",
+        help="Semantic candidate scorer. local is deterministic visual triage; clip/openai use vision-language scoring.",
     )
     parser.add_argument(
         "--proposal-mode",

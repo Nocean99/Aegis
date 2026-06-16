@@ -97,7 +97,7 @@ def test_vehicle_proposal_layer_makes_no_api_calls() -> None:
         )
         report = json.loads(report_path.read_text(encoding="utf-8"))
         result = report["results"][0]
-        assert report["scorer"] == "local-semantic-placeholder-v1"
+        assert report["scorer"] == "local-visual-triage-v2"
         assert result["detected"] is True
         assert result["sensor_modality"] == "rgb"
         assert result["proposal_reason"] in {"small high-contrast object", "rectangle-like aerial object"}

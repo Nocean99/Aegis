@@ -165,3 +165,32 @@ Mission-memory lessons:
 Next step:
 
 Keep selective API review in the RGB vehicle workflow. For IR, prefer local hot-blob triage until the thermal API prompt and review threshold are tuned against hard negatives.
+
+## Leakage-Controlled Local RGB/IR Development Evaluation
+
+Aegis now has the same anti-leakage benchmark protocol for RGB and infrared vehicle layers that it uses for acoustic evaluation.
+
+Protocol:
+
+- Set aside a final 20% lockbox manifest for RGB and IR. Do not evaluate it during tuning.
+- Run stratified 5-fold cross-validation on capped 500-image development sets.
+- For each fold, write a tuning manifest and a separate held-out evaluation labels file.
+- Confirm zero overlap between tuning and evaluation examples for every fold.
+- Use local vehicle proposals only. No OpenAI/API calls are made.
+
+Results:
+
+| Modality | Development Images | Lockbox Images | Capture Precision | Capture Recall | Capture F1 |
+|---|---:|---:|---:|---:|---:|
+| RGB local dev CV | 500 | 5,688 | 50.0% +/- 0.0% | 100.0% +/- 0.0% | 66.7% +/- 0.0% |
+| IR local dev CV | 500 | 5,688 | 91.6% +/- 0.5% | 100.0% +/- 0.0% | 95.6% +/- 0.3% |
+
+Interpretation:
+
+The corrected cross-validation results support the same modality lesson as the earlier subset/API experiments. RGB local triage is high-recall but noisy, so RGB benefits from selective semantic cleanup. IR local triage is already strong for DroneVehicle-style thermal imagery, so IR should trust local hot-blob triage first and use API review more selectively.
+
+Full report:
+
+```text
+docs/DRONEVEHICLE_VISUAL_CROSS_VALIDATION_REPORT.md
+```

@@ -11,6 +11,7 @@ from tempfile import TemporaryDirectory
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from autonomy.acoustic_intelligence import analyze_acoustic_evidence
+from autonomy.acoustic_intelligence import is_anthropogenic_like
 from autonomy.acoustic_intelligence import propose_acoustic_segments
 from autonomy.acoustic_intelligence import read_wav_mono
 
@@ -131,6 +132,51 @@ def test_acoustic_labeled_benchmark_reports_capture_metrics() -> None:
         }
 
 
+def test_anthropogenic_gate_rejects_quiet_animal_like_broadband() -> None:
+    assert not is_anthropogenic_like(
+        {
+            "rms": 0.001,
+            "peak": 0.012,
+            "centroid": 3900,
+            "low_ratio": 0.05,
+            "mid_ratio": 0.22,
+            "high_ratio": 0.73,
+            "entropy": 0.97,
+            "flatness": 0.72,
+            "zero_crossing_rate": 0.33,
+        }
+    )
+
+
+def test_anthropogenic_gate_accepts_steady_vessel_and_antifouling_profiles() -> None:
+    assert is_anthropogenic_like(
+        {
+            "rms": 0.028,
+            "peak": 0.16,
+            "centroid": 1710,
+            "low_ratio": 0.40,
+            "mid_ratio": 0.29,
+            "high_ratio": 0.31,
+            "entropy": 0.88,
+            "flatness": 0.42,
+            "zero_crossing_rate": 0.04,
+        }
+    )
+    assert is_anthropogenic_like(
+        {
+            "rms": 0.034,
+            "peak": 0.18,
+            "centroid": 1880,
+            "low_ratio": 0.07,
+            "mid_ratio": 0.35,
+            "high_ratio": 0.57,
+            "entropy": 0.86,
+            "flatness": 0.012,
+            "zero_crossing_rate": 0.20,
+        }
+    )
+
+
 def write_quiet_wav(path: Path, sample_rate: int = 8000) -> None:
     with wave.open(str(path), "wb") as handle:
         handle.setnchannels(1)
@@ -144,6 +190,8 @@ if __name__ == "__main__":
         test_acoustic_pipeline_writes_metadata_spectrogram_candidates_and_report,
         test_acoustic_segment_proposals_find_high_energy_region,
         test_acoustic_labeled_benchmark_reports_capture_metrics,
+        test_anthropogenic_gate_rejects_quiet_animal_like_broadband,
+        test_anthropogenic_gate_accepts_steady_vessel_and_antifouling_profiles,
     ]
     for test in tests:
         test()

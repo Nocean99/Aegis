@@ -328,10 +328,57 @@ def is_anthropogenic_like(profile: dict[str, float]) -> bool:
     centroid = float(profile.get("centroid") or 0.0)
     zcr = float(profile.get("zero_crossing_rate") or 0.0)
     rms = float(profile.get("rms") or 0.0)
-    broad_continuous = entropy >= 0.94 and flatness >= 0.45 and centroid >= 1500 and zcr < 0.45
-    energetic_broadband = rms >= 0.03 and entropy >= 0.88 and centroid >= 1400 and zcr < 0.45
-    strong_machinery_event = rms >= 0.08 and flatness >= 0.32 and centroid >= 1200 and zcr < 0.45
-    return broad_continuous or energetic_broadband or strong_machinery_event
+    peak = float(profile.get("peak") or 0.0)
+    low_ratio = float(profile.get("low_ratio") or 0.0)
+    high_ratio = float(profile.get("high_ratio") or 0.0)
+    energy_in_vessel_bands = high_ratio >= 0.45 or low_ratio >= 0.25
+    broad_continuous = (
+        rms >= 0.006
+        and peak >= 0.035
+        and entropy >= 0.94
+        and flatness >= 0.45
+        and centroid >= 1500
+        and zcr < 0.45
+    )
+    energetic_broadband = (
+        rms >= 0.03
+        and entropy >= 0.88
+        and centroid >= 1400
+        and zcr < 0.45
+        and energy_in_vessel_bands
+    )
+    strong_machinery_event = (
+        rms >= 0.08
+        and flatness >= 0.32
+        and centroid >= 1200
+        and zcr < 0.45
+        and entropy >= 0.84
+        and energy_in_vessel_bands
+    )
+    steady_low_frequency_vessel = (
+        rms >= 0.024
+        and peak >= 0.12
+        and 1450 <= centroid <= 2200
+        and low_ratio >= 0.34
+        and zcr < 0.07
+        and entropy >= 0.86
+    )
+    tonal_antifouling = (
+        rms >= 0.03
+        and peak >= 0.15
+        and 1700 <= centroid <= 2200
+        and high_ratio >= 0.55
+        and flatness <= 0.05
+        and 0.82 <= entropy <= 0.89
+        and 0.15 <= zcr <= 0.25
+    )
+    return (
+        broad_continuous
+        or energetic_broadband
+        or strong_machinery_event
+        or steady_low_frequency_vessel
+        or tonal_antifouling
+    )
 
 
 def load_acoustic_labels(labels_csv: str | Path | None) -> dict[str, dict]:

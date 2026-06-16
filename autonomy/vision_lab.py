@@ -279,7 +279,15 @@ def _run_vision_lab_on_frames(
         crop_path: Path | None = run_dir / f"{index:04d}_{stem}_crop.png"
         should_save_all = not save_only_detections
         if should_save_all:
-            detector.save_snapshot(frame, debug_path, detection)
+            save_debug_snapshot(
+                frame,
+                debug_path,
+                detection,
+                proposal_mode=proposal_mode,
+                vision_plan=vision_plan,
+                vehicle_detector=vehicle_detector,
+                fallback_detector=detector,
+            )
             saved_crop = save_candidate_crop(crop, crop_path)
         elif detection.detected:
             pending_debug.append((index, frame.copy(), detection, debug_path))
@@ -340,7 +348,15 @@ def _run_vision_lab_on_frames(
         kept = set(shortlist_indexes)
         for index, frame, detection, path in pending_debug:
             if index in kept:
-                detector.save_snapshot(frame, path, detection)
+                save_debug_snapshot(
+                    frame,
+                    path,
+                    detection,
+                    proposal_mode=proposal_mode,
+                    vision_plan=vision_plan,
+                    vehicle_detector=vehicle_detector,
+                    fallback_detector=detector,
+                )
         for index, crop, path in pending_crop:
             if index in kept:
                 save_candidate_crop(crop, path)
@@ -607,6 +623,45 @@ def best_detection(*detections) -> TargetDetection:
     if not detected:
         return TargetDetection(False)
     return max(detected, key=lambda detection: detection.confidence)
+
+
+def save_debug_snapshot(
+    frame_bgr: np.ndarray,
+    path: str | Path,
+    detection: TargetDetection,
+    *,
+    proposal_mode: str,
+    vision_plan,
+    vehicle_detector: VehicleProposalDetector,
+    fallback_detector: RedBlockDetector,
+) -> None:
+    if proposal_mode == "vehicle" or (proposal_mode == "mission-color" and is_vehicle_vision_plan(vision_plan)):
+        output = vehicle_debug_frame(frame_bgr, detection, vehicle_detector)
+        Path(path).parent.mkdir(parents=True, exist_ok=True)
+        cv2.imwrite(str(path), output)
+        return
+    fallback_detector.save_snapshot(frame_bgr, path, detection)
+
+
+def vehicle_debug_frame(
+    frame_bgr: np.ndarray,
+    detection: TargetDetection,
+    vehicle_detector: VehicleProposalDetector,
+) -> np.ndarray:
+    modality = detection.sensor_modality or infer_sensor_modality(None, frame_bgr)
+    overlay = frame_bgr.copy()
+    if detection.bbox:
+        x, y, w, h = detection.bbox
+        cv2.rectangle(overlay, (x, y), (x + w, y + h), (0, 220, 255), 2)
+        label = f"vehicle {detection.confidence:.2f}"
+        reason = detection.proposal_reason or "vehicle proposal"
+        cv2.putText(overlay, label, (x, max(22, y - 10)), cv2.FONT_HERSHEY_SIMPLEX, 0.58, (0, 220, 255), 2)
+        cv2.putText(overlay, reason[:32], (x, min(frame_bgr.shape[0] - 8, y + h + 20)), cv2.FONT_HERSHEY_SIMPLEX, 0.48, (0, 220, 255), 1)
+    elif detection.detected:
+        cv2.putText(overlay, "vehicle fallback review", (18, 32), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 220, 255), 2)
+    mask = vehicle_detector.mask(frame_bgr, modality=modality)
+    mask_bgr = cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR)
+    return np.hstack([frame_bgr, mask_bgr, overlay])
 
 
 def build_semantic_scorer(

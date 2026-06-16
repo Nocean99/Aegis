@@ -86,6 +86,28 @@ datasets/benchmarks/vehicles/dronevehicle_stats.json
 docs/DRONEVEHICLE_BENCHMARK_ANALYSIS.md
 ```
 
+## DroneVehicle Leakage-Controlled RGB/IR Cross-Validation
+
+Run local-only stratified 5-fold cross-validation for RGB and infrared vehicle triage. These commands write final lockbox manifests, but they do not evaluate the lockbox. By default they evaluate capped 500-image development sets so the benchmark is practical to rerun locally.
+
+```bash
+./scripts/run_dronevehicle_rgb_cross_validation.sh "/path/to/VisDrone-DroneVehicle"
+./scripts/run_dronevehicle_ir_cross_validation.sh "/path/to/VisDrone-DroneVehicle"
+```
+
+Outputs:
+
+```text
+logs/visual_cross_validation/dronevehicle_rgb/visual_cross_validation_report.json
+logs/visual_cross_validation/dronevehicle_rgb/visual_cross_validation_report.html
+logs/visual_cross_validation/dronevehicle_rgb/final_test_lockbox.csv
+logs/visual_cross_validation/dronevehicle_ir/visual_cross_validation_report.json
+logs/visual_cross_validation/dronevehicle_ir/visual_cross_validation_report.html
+logs/visual_cross_validation/dronevehicle_ir/final_test_lockbox.csv
+```
+
+Do not evaluate the RGB/IR `final_test_lockbox.csv` files during tuning. Use them exactly once after the vehicle proposal and review policy are frozen.
+
 ## DroneVehicle Local RGB/IR Baselines
 
 Create 500-image local subsets:
@@ -168,6 +190,14 @@ Create a 60-clip underwater-noise benchmark and evaluate the acoustic proposal l
 ./scripts/run_acoustic_benchmark_v1.sh "/path/to/dataset_final"
 ```
 
+For leakage-controlled development evaluation, run stratified 5-fold cross-validation. This command also writes a final lockbox manifest, but does not evaluate it:
+
+```bash
+./scripts/run_acoustic_cross_validation_v1.sh "/path/to/dataset_final"
+```
+
+Do not evaluate `logs/acoustic_cross_validation_v1/final_test_lockbox.csv` during tuning. Use it exactly once after acoustic thresholds or learned models are frozen.
+
 Expected source folders:
 
 ```text
@@ -183,6 +213,8 @@ Outputs:
 benchmark_data/acoustic_v1/benchmark.csv
 logs/acoustic_benchmark_v1/acoustic_benchmark_report.json
 logs/acoustic_benchmark_v1/acoustic_benchmark_report.html
+logs/acoustic_cross_validation_v1/acoustic_cross_validation_report.json
+logs/acoustic_cross_validation_v1/acoustic_cross_validation_report.html
 docs/ACOUSTIC_BENCHMARK_V1_SNIPPET.md
 docs/ACOUSTIC_BENCHMARK_TUNING_REPORT.md
 ```

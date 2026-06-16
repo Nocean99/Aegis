@@ -236,8 +236,9 @@ def render_html(data: dict, base_dir: Path) -> str:
         {metric("Detections", vision_summary.get("detections"))}
         {metric("Shortlist", vision_summary.get("shortlist_count"))}
         {metric("Semantic Errors", vision_summary.get("semantic_errors"))}
-        {metric("Precision", vision_summary.get("precision"))}
-        {metric("Recall", vision_summary.get("recall"))}
+        {metric("Confirmed Precision", vision_summary.get("precision"))}
+        {metric("Confirmed Recall", vision_summary.get("recall"))}
+        {metric("Capture Precision", vision_summary.get("capture_precision"))}
         {metric("Capture Recall", vision_summary.get("capture_recall"))}
         {metric("Stage Errors", (data.get("stage_summary") or {}).get("error"))}
       </section>
@@ -271,7 +272,9 @@ def render_html(data: dict, base_dir: Path) -> str:
           {row("Confirmed Precision", vision_summary.get("precision"))}
           {row("Confirmed Recall", vision_summary.get("recall"))}
           {row("Confirmed F1", vision_summary.get("f1"))}
+          {row("Capture Precision", vision_summary.get("capture_precision"))}
           {row("Capture Recall", vision_summary.get("capture_recall"))}
+          {row("Capture F1", vision_summary.get("capture_f1"))}
         </article>
       </section>
 

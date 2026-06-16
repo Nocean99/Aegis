@@ -140,8 +140,30 @@ select:hover {
   text-align: left;
 }
 
+.report-button.newest-report {
+  border-color: var(--accent);
+}
+
 .report-button strong {
   line-height: 1.25;
+}
+
+.latest-badge {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 2px 6px;
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  color: var(--accent);
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.report-path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .report-button span,

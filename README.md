@@ -1,8 +1,8 @@
-# Mission Intelligence Layer
+# Aegis — Mission Intelligence Layer
 
-Mission intelligence platform for robotic and sensor systems.
+Aegis is a mission intelligence platform for robotic and sensor systems.
 
-Mission Intelligence Layer helps operators convert large volumes of sensor data into prioritized findings, analyst decisions, mission memory, and structured mission reports.
+Aegis helps operators convert large volumes of sensor data into prioritized findings, analyst decisions, mission memory, and structured mission reports.
 
 The platform combines mission planning, contextual search priorities, proposal detection, semantic analysis, candidate ranking, analyst review, and mission memory into a single workflow. Current validation uses drone simulation, image/video benchmarks, and PX4/Gazebo integration paths, but the architecture is designed to support multiple sensor sources including drones, fixed cameras, robotics platforms, acoustic sensors, telemetry feeds, and recorded datasets.
 
@@ -28,7 +28,7 @@ Modern missions can generate thousands of images, video frames, detections, and 
 
 Human operators often have to review that evidence manually. Important findings can be missed while analysts spend time sorting through irrelevant frames, ambiguous detections, or low-quality sensor outputs.
 
-Mission Intelligence Layer focuses on deciding which observations deserve attention while preserving uncertain evidence for review. The goal is not to remove the operator. The goal is to help the operator move faster, miss less, and leave behind a useful mission record.
+Aegis focuses on deciding which observations deserve attention while preserving uncertain evidence for review. The goal is not to remove the operator. The goal is to help the operator move faster, miss less, and leave behind a useful mission record.
 
 ## System Architecture
 
@@ -64,13 +64,13 @@ Low-level vehicle control stays separated from mission reasoning. Perception sco
 
 ## Benchmark Snapshot
 
-| Benchmark | Best Current Strategy | Capture Precision | Capture Recall |
-|---|---|---:|---:|
-| SAR People | review-priority API | 91.0% | 89.7% |
-| RGB Vehicles | API cleanup | 73.2% | 95.3% |
-| IR Vehicles | local IR triage | 89.4% | 100.0% |
-| Acoustic v1 | anthropogenic acoustic triage | 70.4% | 95.0% |
-| System Benchmark v1 | multi-sensor mission workflow | 100.0% | 100.0% |
+| Benchmark | Best Current Strategy | Capture Precision | Capture Recall | Capture F1 |
+|---|---|---:|---:|---:|
+| SAR People | review-priority API | 91.0% | 89.7% | 90.3% |
+| RGB Vehicles | API cleanup | 73.2% | 95.3% | 82.8% |
+| IR Vehicles | local IR triage | 89.4% | 100.0% | 94.4% |
+| Acoustic v1 dev cross-validation | vessel-aware acoustic triage | 34.2% ± 8.9% | 70.6% ± 16.7% | 46.0% ± 11.5% |
+| System Benchmark v1 | multi-sensor mission workflow | 100.0% | 100.0% | 100.0% |
 
 ![Aegis benchmark snapshot](docs/assets/aegis_benchmark_snapshot.png)
 
@@ -78,7 +78,9 @@ The headline lesson: review policy should depend on modality. RGB vehicle eviden
 
 Measurement note: capture recall is measured after full-frame fallback. When no local proposal is found, the whole frame is preserved as a low-confidence candidate for review, so capture recall is intentionally biased high and capture precision reflects the resulting review cost. Read 100% capture recall as "no target was silently dropped before analyst review," not as detector accuracy.
 
-The acoustic benchmark now has a measured before/after result. The first baseline run reached 23.7% precision and 45.0% recall; after adding anthropogenic acoustic triage, Aegis reaches 70.4% precision and 95.0% recall on the same 60 underwater-noise clips.
+The acoustic benchmark now uses a leakage-controlled protocol. A final 73-clip lockbox is set aside and not evaluated during tuning. On the remaining 295 development clips, stratified 5-fold cross-validation gives 34.2% ± 8.9% precision, 70.6% ± 16.7% recall, and 46.0% ± 11.5% F1. That is the honest development estimate for the current heuristic triage layer: it preserves many anthropogenic clips, but still over-proposes on animal and sonar negatives. Earlier 60-clip and 46-clip samples were useful for debugging, but they are not the reportable generalization claim.
+
+The RGB and IR vehicle layers now use the same anti-leakage discipline for local development evaluation. A final DroneVehicle lockbox is written and left untouched. On capped 500-image development folds, RGB local triage measured 50.0% ± 0.0% capture precision and 100.0% ± 0.0% capture recall; IR local triage measured 91.6% ± 0.5% capture precision and 100.0% ± 0.0% capture recall. These are development cross-validation estimates, not final lockbox scores.
 
 ## Multi-Sensor Shoreline Demo
 
@@ -205,6 +207,8 @@ Mission: Search for a missing person near a shoreline
 - Local semantic scoring interface
 - Optional local CLIP open-vocabulary semantic scoring (offline, `pip install '.[ml]'`, see `docs/LEARNED_MODELS.md`)
 - Optional OpenAI vision-language scoring backend
+- Acoustic `.wav` ingestion, spectrogram generation, and anthropogenic proposal triage
+- Multi-sensor shoreline demo combining RGB, infrared, and acoustic evidence
 - Full-frame fallback review for detector misses and rejected crops
 - IoU-based localization metrics (precision/recall/F1, mean IoU, AP) alongside capture metrics via a `gt_boxes` labels column
 - Multi-frame contact tracking for video missions (one contact per track, not per frame)
@@ -268,8 +272,10 @@ The benchmark suite evaluates the system across mission contexts and sensor moda
 | SAR API review | 200 | review-priority sample | 91.0% | 89.7% |
 | Vehicle local triage | 43 | local category baseline | 34.6% | 81.8% |
 | DroneVehicle RGB local subset | 500 | local vehicle proposals | 50.0% | 100.0% |
+| DroneVehicle RGB local dev CV | 500 | local proposal cross-validation | 50.0% ± 0.0% | 100.0% ± 0.0% |
 | DroneVehicle RGB API review | 100 | review-priority sample | 73.2% | 95.3% |
 | DroneVehicle IR local subset | 500 | local vehicle proposals | 89.4% | 100.0% |
+| DroneVehicle IR local dev CV | 500 | local proposal cross-validation | 91.6% ± 0.5% | 100.0% ± 0.0% |
 | DroneVehicle IR API review | 100 | review-priority sample | 61.1% | 100.0% |
 
 Recent benchmark direction:
@@ -293,6 +299,7 @@ docs/SYSTEM_BENCHMARK_V1_REPORT.md
 docs/SARD_BENCHMARK_REPORT.md
 docs/VEHICLE_BENCHMARK_REPORT.md
 docs/DRONEVEHICLE_BENCHMARK_ANALYSIS.md
+docs/DRONEVEHICLE_VISUAL_CROSS_VALIDATION_REPORT.md
 docs/DRONEVEHICLE_RGB_BENCHMARK_REPORT.md
 docs/DRONEVEHICLE_IR_BENCHMARK_REPORT.md
 docs/DRONEVEHICLE_RGB_API_BENCHMARK_REPORT.md
@@ -301,7 +308,7 @@ docs/LINKEDIN_POST_AEGIS_VEHICLE_MODALITY_BENCHMARK.md
 docs/PORTFOLIO_AEGIS_MODALITY_INTELLIGENCE.md
 ```
 
-Next platform expansion:
+Current multi-sensor boundary:
 
 ```text
 Aegis Vision Intelligence
@@ -309,9 +316,9 @@ Aegis Vision Intelligence
 + Aegis Acoustic Intelligence
 ```
 
-The vehicle modality benchmark makes acoustic/sonar sensing the next logical expansion: a non-visual evidence stream that can use the same mission-memory, benchmark, and analyst-review workflow.
+Aegis now includes acoustic evidence as a first-class non-visual modality, not just a future roadmap item.
 
-Phase 1/2 acoustic evidence support now includes `.wav` ingestion, spectrogram generation, high-energy and anthropogenic acoustic proposals, candidate JSON, and a simple acoustic report.
+Phase 1/2 acoustic evidence support includes `.wav` ingestion, spectrogram generation, high-energy and anthropogenic acoustic proposals, candidate JSON, and a simple acoustic report.
 
 The analyst dashboard can review acoustic candidates with spectrograms, time ranges, proposal scores, reasons, review priority, and approve/reject/investigate decisions.
 
@@ -445,8 +452,8 @@ Near-term:
 
 Medium-term:
 
-- rename the repository to `mission-intelligence-layer`
-- add cleaner sensor abstraction for folders, videos, live cameras, drone cameras, and future acoustic sources
+- keep the canonical project/repository name as `Aegis`
+- add cleaner sensor abstraction for folders, videos, live cameras, drone cameras, hydrophones, and telemetry feeds
 - support disconnected/edge collection with host-side semantic review after reconnect or return
 - add richer report export for portfolio/demo use
 

@@ -51,18 +51,19 @@ async function loadReports() {
   const response = await fetch("/api/reports");
   const data = await response.json();
   reportList.innerHTML = "";
-  for (const report of data.reports) {
+  data.reports.forEach((report, index) => {
     const button = document.createElement("button");
-    button.className = "report-button";
+    button.className = `report-button${index === 0 ? " newest-report" : ""}`;
     button.type = "button";
     button.innerHTML = `
-      <strong>${escapeHtml(report.mission_request || "Untitled mission")}</strong>
-      <span>${escapeHtml(report.type || "vision")} · ${escapeHtml(report.timestamp || "")}</span>
-      <span>Precision ${display(report.precision)} · Recall ${display(report.recall)} · Capture ${display(report.capture_recall)} · ${display(report.detections)} detections</span>
+      <strong>${index === 0 ? '<span class="latest-badge">Newest</span> ' : ""}${escapeHtml(report.mission_request || "Untitled mission")}</strong>
+      <span>${escapeHtml(report.type || "vision")} · updated ${escapeHtml(formatDateTime(report.updated_at || report.timestamp || ""))}</span>
+      <span class="report-path">${escapeHtml(report.path || "")}</span>
+      <span>Confirmed ${display(report.precision)} · Capture ${display(report.capture_recall)} · ${display(report.detections)} detections</span>
     `;
     button.addEventListener("click", () => loadReport(report.path));
     reportList.appendChild(button);
-  }
+  });
   if (!data.reports.length) {
     reportList.innerHTML = `<p class="empty">No vision reports found yet.</p>`;
   }
@@ -88,14 +89,17 @@ function renderReport() {
   reviewPanelTitle.textContent = isAcoustic ? "Acoustic Review" : "Candidate Review";
   missionText.textContent = report.mission_request || "No mission request";
   scorerMeta.textContent = isAcoustic ? "acoustic · local-acoustic-proposal-v1" : `${report.proposal_mode || "unknown"} · ${report.scorer || "unknown"}`;
+  const capture = evaluation.analyst_capture || {};
   metrics.innerHTML = [
     metric("Processed", summary.processed),
     metric(isAcoustic ? "Proposals" : "Detections", isAcoustic ? summary.candidate_count : summary.detections),
     metric("Shortlist", isAcoustic ? summary.candidate_count : summary.shortlist_count),
-    metric("Precision", isAcoustic ? evaluation.capture_precision : evaluation.precision),
-    metric("Recall", isAcoustic ? evaluation.capture_recall : evaluation.recall),
-    metric("F1", isAcoustic ? evaluation.capture_f1 : evaluation.f1),
-    metric("Capture Recall", isAcoustic ? evaluation.capture_recall : evaluation.analyst_capture?.recall),
+    metric(isAcoustic ? "Capture Precision" : "Confirmed Precision", isAcoustic ? evaluation.capture_precision : evaluation.precision),
+    metric(isAcoustic ? "Capture Recall" : "Confirmed Recall", isAcoustic ? evaluation.capture_recall : evaluation.recall),
+    metric(isAcoustic ? "Capture F1" : "Confirmed F1", isAcoustic ? evaluation.capture_f1 : evaluation.f1),
+    metric("Capture Precision", isAcoustic ? evaluation.capture_precision : capture.precision),
+    metric("Capture Recall", isAcoustic ? evaluation.capture_recall : capture.recall),
+    metric("Capture F1", isAcoustic ? evaluation.capture_f1 : capture.f1),
     metric("False Neg", isAcoustic ? evaluation.false_negative : evaluation.false_negative),
   ].join("");
   if (isAcoustic) renderAcousticPlan(report);
@@ -411,6 +415,18 @@ function display(value) {
   if (value === undefined || value === null) return "n/a";
   if (typeof value === "number") return Number.isInteger(value) ? String(value) : value.toFixed(3);
   return escapeHtml(value);
+}
+
+function formatDateTime(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString([], {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
 }
 
 function decisionMeaning(decision) {
