@@ -1,8 +1,8 @@
 # Aegis — Mission Intelligence Layer
 
-Aegis is a mission intelligence platform for robotic and sensor systems.
+Aegis is a mission intelligence platform that turns sensor overload into ranked, analyst-confirmed findings for robotic and sensor systems.
 
-Aegis helps operators convert large volumes of sensor data into prioritized findings, analyst decisions, mission memory, and structured mission reports.
+Aegis helps operators convert large volumes of image, infrared, acoustic, and mission data into prioritized findings, analyst decisions, mission memory, and structured mission reports.
 
 The platform combines mission planning, contextual search priorities, proposal detection, semantic analysis, candidate ranking, analyst review, and mission memory into a single workflow. Current validation uses drone simulation, image/video benchmarks, and PX4/Gazebo integration paths, but the architecture is designed to support multiple sensor sources including drones, fixed cameras, robotics platforms, acoustic sensors, telemetry feeds, and recorded datasets.
 
@@ -17,8 +17,8 @@ Current MVP boundary:
 | Modalities | RGB, infrared, acoustic |
 | Outputs | candidates, analyst review, mission memory, mission reports |
 | Benchmarks | SAR, RGB vehicles, IR vehicles, acoustic underwater noise |
-| Multi-sensor demo | shoreline monitoring |
-| System benchmark | five mission-level contact cases |
+| Multi-sensor demo | shoreline monitoring workflow |
+| System benchmark | five mission-level contact cases in development |
 
 The v1 product story is simple: Aegis takes RGB imagery, thermal imagery, and hydrophone audio from protected shoreline missions, then produces ranked contacts with supporting evidence across sensors.
 
@@ -70,12 +70,14 @@ Current leakage-controlled development estimates:
 
 | Benchmark | Strategy | Precision | Recall | F1 |
 |---|---|---:|---:|---:|
-| IR Vehicles | local triage, cross-validated | 91.6% ± 0.5% | 100.0% ± 0.0% | 95.6% ± 0.3% |
-| RGB Vehicles | local proposals, cross-validated | 50.0% ± 0.0% | 100.0% ± 0.0% | 66.7% ± 0.0% |
-| Acoustic | development cross-validation | 34.2% ± 8.9% | 70.6% ± 16.7% | 46.0% ± 11.5% |
-| Maritime SAR | SeaDronesSee local recall-only | n/a | 78.0% ± 11.0% | n/a |
+| IR Vehicles | local triage, cross-validated | 91.6% ± 0.5% capture | 100.0% ± 0.0% capture | 95.6% ± 0.3% capture |
+| RGB Vehicles | local proposals, cross-validated | 50.0% ± 0.0% capture | 100.0% ± 0.0% capture | 66.7% ± 0.0% capture |
+| Acoustic | development cross-validation | 34.2% ± 8.9% capture | 70.6% ± 16.7% capture | 46.0% ± 11.5% capture |
+| Maritime SAR | SeaDronesSee local recall-only | n/a | 78.0% ± 11.0% confirmed recall | n/a |
 
 The headline lesson: review policy should depend on modality. Infrared vehicle evidence currently performs best with local hot-blob triage, RGB vehicle evidence benefits from semantic cleanup after local proposals, and acoustic evidence is useful but still noisy.
+
+Cross-surface consistency check: this table is the canonical public benchmark snapshot and matches the current benchmark graphic. Older single-sample and API-review numbers remain traceable in reports, but they are not the current headline generalization estimates.
 
 ## Evaluation Methodology
 
@@ -91,7 +93,7 @@ Fixed benchmark issue: a label-parsing bug that affected earlier benchmark score
 
 ## Multi-Sensor Shoreline Demo
 
-Aegis now includes a small maritime monitoring demo that combines visual, infrared, and acoustic evidence into one mission workflow.
+Aegis includes a small maritime monitoring demo that runs visual, infrared, and acoustic stages through one mission workflow.
 
 Scenario:
 
@@ -99,21 +101,12 @@ Scenario:
 Protected coastal zone.
 Mission: monitor for possible vessel activity.
 Inputs: RGB shoreline image, thermal shoreline image, hydrophone recording.
-Output: unified contacts, evidence by modality, analyst review queue, mission report.
+Output: candidates by modality, analyst review queue, mission memory, mission report.
 ```
 
-Example result from the demo run:
+The demo is a workflow demonstration, not a benchmark score. It shows how RGB, infrared, and hydrophone evidence move through the same mission reporting and review structure. Current recording assets demonstrate RGB/IR review and a labeled acoustic clip separately; they should not be presented as a scored three-sensor fusion result.
 
-| Output | Result |
-|---|---:|
-| Candidates generated | 6 |
-| High-priority contacts | 1 |
-| Stage errors | 0 |
-| Multi-sensor confirmation | true |
-
-The highest-priority contact combined RGB, infrared, and acoustic evidence: a visual vessel-like proposal, a thermal hotspot, and an engine-like acoustic segment.
-
-![Aegis multi-sensor demo summary](docs/assets/aegis_multisensor_demo_summary.png)
+The acoustic recording path is active: `.wav` files produce spectrograms, acoustic segment candidates, candidate JSON, and report entries. The current labeled acoustic recording demo is a single positive clip showing acoustic evidence entering the workflow, while the broader acoustic benchmark is reported separately in the benchmark section.
 
 Run it with:
 
@@ -181,6 +174,9 @@ No single component should erase the mission.
 - Benchmark fails on one mission -> the suite records the error and continues.
 
 The preferred failure mode is degraded confidence and more review, not silent misses.
+
+**Layered Evaluation**
+Local and API evaluation are kept as separate signals rather than merged into one verdict. They fail on different cases, so preserving both signals and surfacing disagreements for human review prevents any single layer's blind spot from silently losing a target.
 
 **Mission Intelligence Before Drone Simulation**
 The drone simulator is a validation platform. The broader system is a reusable mission intelligence layer for robotic and sensor workflows.
@@ -271,27 +267,45 @@ Example decision record:
 
 ## Benchmarking
 
-The benchmark suite evaluates the system across mission contexts and sensor modalities, not just one detector task.
+The benchmark suite evaluates the system across mission contexts and sensor modalities, not just one detector task. The current headline numbers are the leakage-controlled estimates in the Benchmark Snapshot near the top of this README.
 
-| Benchmark | Images | Review Strategy | Capture Precision | Capture Recall |
-|---|---:|---|---:|---:|
-| SAR local triage | 5,712 | local full-dataset pass | 83.7% | 69.8% |
-| SAR API review | 200 | review-priority sample | 91.0% | 89.7% |
-| Vehicle local triage | 43 | local category baseline | 34.6% | 81.8% |
-| DroneVehicle RGB local subset | 500 | local vehicle proposals | 50.0% | 100.0% |
-| DroneVehicle RGB local dev CV | 500 | local proposal cross-validation | 50.0% ± 0.0% | 100.0% ± 0.0% |
-| DroneVehicle RGB API review | 100 | review-priority sample | 73.2% | 95.3% |
-| DroneVehicle IR local subset | 500 | local vehicle proposals | 89.4% | 100.0% |
-| DroneVehicle IR local dev CV | 500 | local proposal cross-validation | 91.6% ± 0.5% | 100.0% ± 0.0% |
-| DroneVehicle IR API review | 100 | review-priority sample | 61.1% | 100.0% |
+Historical single-sample and API-review reports remain in `docs/` for traceability, but they are not the current generalization claim. Use the cross-validated development estimates for the public benchmark story until the protected lockboxes are evaluated.
 
-Recent benchmark direction:
+Current benchmark lessons:
 
 - full-frame fallback significantly improved target capture
-- review-priority API sampling improved SAR people search
-- RGB vehicle evidence benefits from semantic API cleanup
-- IR vehicle evidence currently performs best with local hot-blob triage
-- thermal API review needs stricter prompting or a stricter `NEEDS_REVIEW` threshold
+- RGB vehicle evidence is captured reliably by local proposals; API review can be useful as selective cleanup, but API sample runs are not the headline benchmark estimate
+- IR vehicle evidence currently performs best with local hot-blob triage; thermal API review did not improve confirmed accuracy in a small 30-image probe
+- thermal hard negatives and a trained thermal detector are the likely long-term fix for IR false positives
+- SeaDronesSee maritime SAR is recall-only until no-target maritime negatives are added
+
+### Mixed-Set Demo Probes
+
+For demo recording, Aegis was also run on balanced 40-image mixed vehicle sets with 20 positives and 20 negatives. These are not cross-validation headline numbers; they are small, interpretable viewing probes where precision is meaningful because negatives are present.
+
+| Probe | Confirmed Precision | Confirmed Recall | Confirmed F1 | Capture Precision | Capture Recall |
+|---|---:|---:|---:|---:|---:|
+| RGB mixed 40 | 64.5% | 100.0% | 78.4% | 50.0% | 100.0% |
+| IR mixed 40 | 52.6% | 100.0% | 69.0% | 50.0% | 100.0% |
+
+The RGB demo run shows cleaner ranking behavior: strong positives tend to rank high and many negatives sink into lower-priority `NEEDS_REVIEW` fallback. The IR demo run preserves target evidence but is weaker at confirmed discrimination because warm non-vehicle thermal structures can resemble vehicle-like hot blobs.
+
+### Cascade Ranking Test
+
+A separate cascade ranking/efficiency test uses the mixed RGB set to test ranking quality rather than mission behavior. The local layer ranks all 40 images, then the API confirmation layer walks the ranked list in order for a planted target and stops at the first claimed find. Correctness is checked against the hidden ground-truth target image, not against API confidence.
+
+Across five planted targets:
+
+- 3 were correctly found in the top few ranks
+- median API calls was 2 instead of reviewing all 40 images
+- 1 trial stopped early on a similar-looking false positive
+- 1 trial missed the target even though the true target was ranked 4th
+
+That result is useful because it shows both the efficiency upside and the failure modes. The API can make wrong early stops, and the local ranker can surface a target that the API still fails to confirm. That is why Aegis keeps local ranking, API review, and human analyst decisions as separate layers.
+
+### IR Recalibration Note
+
+IR confirmed-match thresholds were tightened after diagnosing thermal false positives, then validated through the held-out cross-validation harness. The change modestly improved confirmed precision from 91.8% to 92.5% while confirmed recall moved from 100.0% to 99.6%. This is a scoring recalibration, not a solved thermal detector; trained thermal detection and broader hard negatives remain future work.
 
 Detailed benchmark reports and commands:
 
@@ -311,6 +325,7 @@ docs/DRONEVEHICLE_RGB_BENCHMARK_REPORT.md
 docs/DRONEVEHICLE_IR_BENCHMARK_REPORT.md
 docs/DRONEVEHICLE_RGB_API_BENCHMARK_REPORT.md
 docs/DRONEVEHICLE_IR_API_BENCHMARK_REPORT.md
+docs/IR_LAYER_RECALIBRATION_REPORT.md
 docs/LINKEDIN_POST_AEGIS_VEHICLE_MODALITY_BENCHMARK.md
 docs/PORTFOLIO_AEGIS_MODALITY_INTELLIGENCE.md
 ```
@@ -429,7 +444,7 @@ Core modules live in `autonomy/`:
 
 ## Tests
 
-Run the main mission-intelligence checks:
+The repository currently has 40+ Python test files and a GitHub Actions CI workflow. Run the main mission-intelligence checks:
 
 ```bash
 python3 tests/test_mission_memory.py
@@ -450,12 +465,15 @@ Recently completed:
 
 Near-term:
 
-- record the demo video (`docs/DEMO_VIDEO_PLAN.md`) and add a dashboard screenshot to this README
+- record and link the demo video (`docs/DEMO_VIDEO_PLAN.md`) and add a dashboard screenshot to this README
 - collect broader labeled datasets for boats, debris, signals, fire/smoke, structure damage, and animals
 - improve candidate ranking to reduce noisy review items while preserving capture recall
-- improve analyst review workflow and report browsing
+- improve analyst review workflow and report browsing, including a collapsed low-priority review group
 - keep expanding mission memory into practical recommendations
 - wire georeferenced contact locations into live search missions and the dashboard
+- add SeaDronesSee no-target maritime negatives so maritime SAR precision can be measured
+- collect thermal hard negatives and train or fine-tune a thermal vehicle detector
+- rerun small, held-out IR API probes only after thermal-specific prompts or thresholds are frozen
 
 Medium-term:
 

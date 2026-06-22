@@ -171,9 +171,19 @@ def _score_vehicle_candidate(
     if detection.proposal_reason == "full-frame fallback":
         score = min(score, 0.46)
     score = max(0.0, min(1.0, score))
-    if score >= 0.76:
+    is_ir_vehicle = (detection.sensor_modality or "").lower() == "infrared"
+    is_hot_blob = (detection.proposal_reason or "").lower() == "hot ir blob"
+    if is_ir_vehicle or is_hot_blob:
+        tags.append("thermal_triage_stricter_threshold")
+        likely_threshold = 0.82
+        possible_threshold = 0.65
+    else:
+        likely_threshold = 0.76
+        possible_threshold = 0.55
+
+    if score >= likely_threshold:
         decision = SemanticDecision.LIKELY_MATCH
-    elif score >= 0.55:
+    elif score >= possible_threshold:
         decision = SemanticDecision.POSSIBLE_MATCH
     else:
         decision = SemanticDecision.NEEDS_REVIEW
