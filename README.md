@@ -64,23 +64,30 @@ Low-level vehicle control stays separated from mission reasoning. Perception sco
 
 ## Benchmark Snapshot
 
-| Benchmark | Best Current Strategy | Capture Precision | Capture Recall | Capture F1 |
-|---|---|---:|---:|---:|
-| SAR People | review-priority API | 91.0% | 89.7% | 90.3% |
-| RGB Vehicles | API cleanup | 73.2% | 95.3% | 82.8% |
-| IR Vehicles | local IR triage | 89.4% | 100.0% | 94.4% |
-| Acoustic v1 dev cross-validation | vessel-aware acoustic triage | 34.2% ± 8.9% | 70.6% ± 16.7% | 46.0% ± 11.5% |
-| System Benchmark v1 | multi-sensor mission workflow | 100.0% | 100.0% | 100.0% |
-
 ![Aegis benchmark snapshot](docs/assets/aegis_benchmark_snapshot.png)
 
-The headline lesson: review policy should depend on modality. RGB vehicle evidence benefits from semantic cleanup after local proposals; infrared vehicle evidence currently performs best with local hot-blob triage.
+Current leakage-controlled development estimates:
 
-Measurement note: capture recall is measured after full-frame fallback. When no local proposal is found, the whole frame is preserved as a low-confidence candidate for review, so capture recall is intentionally biased high and capture precision reflects the resulting review cost. Read 100% capture recall as "no target was silently dropped before analyst review," not as detector accuracy.
+| Benchmark | Strategy | Precision | Recall | F1 |
+|---|---|---:|---:|---:|
+| IR Vehicles | local triage, cross-validated | 91.6% ± 0.5% | 100.0% ± 0.0% | 95.6% ± 0.3% |
+| RGB Vehicles | local proposals, cross-validated | 50.0% ± 0.0% | 100.0% ± 0.0% | 66.7% ± 0.0% |
+| Acoustic | development cross-validation | 34.2% ± 8.9% | 70.6% ± 16.7% | 46.0% ± 11.5% |
+| Maritime SAR | SeaDronesSee local recall-only | n/a | 78.0% ± 11.0% | n/a |
 
-The acoustic benchmark now uses a leakage-controlled protocol. A final 73-clip lockbox is set aside and not evaluated during tuning. On the remaining 295 development clips, stratified 5-fold cross-validation gives 34.2% ± 8.9% precision, 70.6% ± 16.7% recall, and 46.0% ± 11.5% F1. That is the honest development estimate for the current heuristic triage layer: it preserves many anthropogenic clips, but still over-proposes on animal and sonar negatives. Earlier 60-clip and 46-clip samples were useful for debugging, but they are not the reportable generalization claim.
+The headline lesson: review policy should depend on modality. Infrared vehicle evidence currently performs best with local hot-blob triage, RGB vehicle evidence benefits from semantic cleanup after local proposals, and acoustic evidence is useful but still noisy.
 
-The RGB and IR vehicle layers now use the same anti-leakage discipline for local development evaluation. A final DroneVehicle lockbox is written and left untouched. On capped 500-image development folds, RGB local triage measured 50.0% ± 0.0% capture precision and 100.0% ± 0.0% capture recall; IR local triage measured 91.6% ± 0.5% capture precision and 100.0% ± 0.0% capture recall. These are development cross-validation estimates, not final lockbox scores.
+## Evaluation Methodology
+
+Aegis is evaluated with leakage-controlled splits. For acoustic and DroneVehicle RGB/IR development runs, the pipeline creates a protected final lockbox and leaves it untouched while development uses stratified cross-validation. No clip or image appears in both the tuning and evaluation side of the same fold.
+
+Aegis reports two metric families. Confirmed metrics measure what the system identifies as a match. Capture metrics measure whether relevant evidence is preserved for analyst review, even when the system is uncertain. Capture recall is intentionally recall-biased because full-frame fallback can preserve a low-confidence candidate instead of silently dropping a target.
+
+SeaDronesSee is currently reported as recall-only because the local train/validation labels contain no negative maritime cases under the current target rule. Precision and F1 are intentionally omitted until no-target maritime imagery is added.
+
+Note: earlier single-sample benchmark figures were superseded by leakage-controlled cross-validation after held-out testing showed they overstated generalization. The cross-validated numbers above are the current honest development estimates.
+
+Fixed benchmark issue: a label-parsing bug that affected earlier benchmark scores was corrected, and a regression test now verifies that negative labels stay negative.
 
 ## Multi-Sensor Shoreline Demo
 
